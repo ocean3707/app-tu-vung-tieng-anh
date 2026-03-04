@@ -6,7 +6,6 @@
   <title>App Học Từ Vựng AI</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
-  
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
   <style>
@@ -20,10 +19,7 @@
       "imports": {
         "react": "https://esm.sh/react@18.2.0",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-        "lucide-react": "https://esm.sh/lucide-react@0.292.0",
-        "firebase/app": "https://esm.sh/firebase@10.8.0/app",
-        "firebase/auth": "https://esm.sh/firebase@10.8.0/auth",
-        "firebase/firestore": "https://esm.sh/firebase@10.8.0/firestore"
+        "lucide-react": "https://esm.sh/lucide-react@0.292.0"
       }
     }
   </script>
@@ -34,26 +30,15 @@
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useRef } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Volume2, Mic, Plus, List, BookOpen, ChevronRight, ChevronLeft, Trash2, CheckCircle2, XCircle, AlertCircle, Wand2, Loader2, BrainCircuit, Trophy, RotateCcw, Cloud, CloudOff, User, LogOut, ShieldCheck } from 'lucide-react';
+    import { Volume2, Mic, Plus, List, BookOpen, ChevronRight, ChevronLeft, Trash2, CheckCircle2, XCircle, AlertCircle, Wand2, Loader2, BrainCircuit, Trophy, RotateCcw, User, ShieldCheck, HardDrive, Smartphone } from 'lucide-react';
     
-    import { initializeApp } from 'firebase/app';
-    import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, signOut } from 'firebase/auth';
-    import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
-
-    // --- Khởi tạo Firebase ---
-    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db = getFirestore(app);
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
     // Dữ liệu mẫu (Về đầu tư an toàn theo sở thích)
     const sampleVocabulary = [
-      { word: 'Invest', phonetic: '/ɪnˈvɛst/', meaning: 'Đầu tư', example: 'It is important to invest your money safely to build wealth.' },
-      { word: 'Asset', phonetic: '/ˈæsɛt/', meaning: 'Tài sản', example: 'Real estate and bonds are considered relatively safe assets.' },
-      { word: 'Pronunciation', phonetic: '/prəˌnʌnsiˈeɪʃən/', meaning: 'Cách phát âm', example: 'Practice speaking out loud to improve your pronunciation.' },
-      { word: 'Portfolio', phonetic: '/pɔːtˈfəʊliəʊ/', meaning: 'Danh mục đầu tư', example: 'A diverse portfolio reduces risk.' },
-      { word: 'Interest', phonetic: '/ˈɪntrɪst/', meaning: 'Lãi suất', example: 'The bank offers a high interest rate for safe savings.' }
+      { id: '1', word: 'Invest', phonetic: '/ɪnˈvɛst/', meaning: 'Đầu tư', example: 'It is important to invest your money safely to build wealth.', createdAt: Date.now() },
+      { id: '2', word: 'Asset', phonetic: '/ˈæsɛt/', meaning: 'Tài sản', example: 'Real estate and bonds are considered relatively safe assets.', createdAt: Date.now() - 1000 },
+      { id: '3', word: 'Pronunciation', phonetic: '/prəˌnʌnsiˈeɪʃən/', meaning: 'Cách phát âm', example: 'Practice speaking out loud to improve your pronunciation.', createdAt: Date.now() - 2000 },
+      { id: '4', word: 'Portfolio', phonetic: '/pɔːtˈfəʊliəʊ/', meaning: 'Danh mục đầu tư', example: 'A diverse portfolio reduces risk.', createdAt: Date.now() - 3000 },
+      { id: '5', word: 'Interest', phonetic: '/ˈɪntrɪst/', meaning: 'Lãi suất', example: 'The bank offers a high interest rate for safe savings.', createdAt: Date.now() - 4000 }
     ];
 
     function base64ToArrayBuffer(base64) {
@@ -133,10 +118,8 @@
 
     function App() {
       const [activeTab, setActiveTab] = useState('study');
-      const [user, setUser] = useState(null);
       const [words, setWords] = useState([]);
       const [loading, setLoading] = useState(true);
-      const [syncStatus, setSyncStatus] = useState('connecting');
 
       useEffect(() => {
         document.body.style.overflow = 'hidden';
@@ -147,86 +130,43 @@
         };
       }, []);
 
+      // Load dữ liệu từ Local Storage
       useEffect(() => {
-        const initAuth = async () => {
-          try {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-              await signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-              await signInAnonymously(auth);
-            }
-          } catch (error) {
-            console.error("Auth Error:", error);
-            setSyncStatus('error');
-            setLoading(false);
+        try {
+          const savedData = localStorage.getItem('vocab_app_data');
+          if (savedData) {
+            setWords(JSON.parse(savedData));
           }
-        };
-        initAuth();
-
-        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-          setUser(currentUser);
-          if (!currentUser) setLoading(false);
-        });
-        return () => unsubscribe();
+        } catch (error) {
+          console.error("Lỗi khi tải dữ liệu:", error);
+        } finally {
+          setLoading(false);
+        }
       }, []);
 
-      useEffect(() => {
-        if (!user) return;
-        
-        const vocabRef = collection(db, 'artifacts', appId, 'users', user.uid, 'vocabulary');
-        
-        const unsubscribe = onSnapshot(vocabRef, (snapshot) => {
-          const vocabList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          vocabList.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-          
-          setWords(vocabList);
-          setLoading(false);
-          setSyncStatus('synced');
-        }, (error) => {
-          console.error("Firestore error:", error);
-          setSyncStatus('error');
-          setLoading(false);
-        });
-
-        return () => unsubscribe();
-      }, [user]);
-
-      const handleAddWordToDB = async (wordData) => {
-        if (!user) return;
-        setSyncStatus('connecting'); 
-        try {
-          const vocabRef = collection(db, 'artifacts', appId, 'users', user.uid, 'vocabulary');
-          const newDocRef = doc(vocabRef);
-          await setDoc(newDocRef, { ...wordData, createdAt: Date.now() });
-        } catch (error) {
-          console.error("Error adding doc: ", error);
-          setSyncStatus('error');
-        }
+      const saveToStorage = (newWords) => {
+        setWords(newWords);
+        localStorage.setItem('vocab_app_data', JSON.stringify(newWords));
       };
 
-      const handleDeleteFromDB = async (id) => {
-        if (!user) return;
-        try {
-          await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'vocabulary', id));
-        } catch (error) {
-          console.error("Error deleting doc: ", error);
-        }
+      const handleAddWordToDB = (wordData) => {
+        const newWord = { id: Date.now().toString(), ...wordData, createdAt: Date.now() };
+        const updatedWords = [newWord, ...words];
+        saveToStorage(updatedWords);
       };
 
-      const addSampleData = async () => {
-        if (!user) return;
+      const handleDeleteFromDB = (id) => {
+        const updatedWords = words.filter(w => w.id !== id);
+        saveToStorage(updatedWords);
+      };
+
+      const addSampleData = () => {
         setLoading(true);
-        for (const word of sampleVocabulary) {
-          await handleAddWordToDB(word);
-        }
-        setLoading(false);
-      };
-
-      const handleLogout = async () => {
-        if (window.confirm("Bạn có chắc chắn muốn đăng xuất?")) {
-          await signOut(auth);
-          window.location.reload();
-        }
+        // Ngăn trùng lặp id
+        const cleanSample = sampleVocabulary.map(w => ({...w, id: Date.now().toString() + Math.random()}));
+        const updatedWords = [...cleanSample, ...words];
+        saveToStorage(updatedWords);
+        setTimeout(() => setLoading(false), 500);
       };
 
       return (
@@ -240,9 +180,7 @@
                   VocabMaster AI
                 </h1>
                 <div className="flex items-center gap-1.5 text-[10px] font-bold bg-indigo-800/40 px-2.5 py-1.5 rounded-full backdrop-blur-sm">
-                  {syncStatus === 'connecting' && <Loader2 size={14} className="animate-spin text-white" />}
-                  {syncStatus === 'synced' && <Cloud size={14} className="text-green-300" />}
-                  {syncStatus === 'error' && <CloudOff size={14} className="text-red-300" />}
+                  <HardDrive size={14} className="text-green-300" /> Lưu cục bộ
                 </div>
               </div>
             </header>
@@ -251,14 +189,14 @@
               {loading ? (
                 <div className="h-full flex flex-col items-center justify-center text-indigo-500 gap-3">
                   <Loader2 size={40} className="animate-spin" />
-                  <p className="font-bold text-slate-500 animate-pulse">Đang tải dữ liệu cá nhân...</p>
+                  <p className="font-bold text-slate-500 animate-pulse">Đang tải dữ liệu...</p>
                 </div>
               ) : (
                 <div className="p-4 h-full">
                   {activeTab === 'study' && <StudyMode words={words} onAddSample={addSampleData} />}
                   {activeTab === 'quiz' && <QuizMode words={words} />}
                   {activeTab === 'manage' && <ManageMode words={words} onAdd={handleAddWordToDB} onDelete={handleDeleteFromDB} onAddSample={addSampleData} />}
-                  {activeTab === 'profile' && <ProfileMode user={user} wordsCount={words.length} onLogout={handleLogout} />}
+                  {activeTab === 'profile' && <ProfileMode wordsCount={words.length} />}
                 </div>
               )}
             </main>
@@ -287,24 +225,18 @@
       </button>
     );
 
-    function ProfileMode({ user, wordsCount, onLogout }) {
-      if (!user) return null;
-
-      const shortId = user.uid.substring(0, 8).toUpperCase();
-
+    function ProfileMode({ wordsCount }) {
       return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
-            <div className="w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white text-3xl font-black mb-4 shadow-lg shadow-indigo-200">
-              {shortId.charAt(0)}
+            <div className="w-24 h-24 bg-gradient-to-br from-teal-400 to-indigo-500 rounded-full flex items-center justify-center text-white text-3xl font-black mb-4 shadow-lg shadow-indigo-200">
+              <Smartphone size={40} />
             </div>
-            <h2 className="text-xl font-black text-slate-800 mb-1">
-              {user.isAnonymous ? 'Học viên Ẩn danh' : 'Thành viên'}
-            </h2>
-            <p className="text-sm font-mono text-slate-500 bg-slate-100 px-3 py-1 rounded-lg">ID: {shortId}</p>
+            <h2 className="text-xl font-black text-slate-800 mb-1">Thiết bị cá nhân</h2>
+            <p className="text-sm font-mono text-slate-500 bg-slate-100 px-3 py-1 rounded-lg">Offline Mode</p>
             
             <div className="mt-6 flex items-center gap-2 text-sm text-green-600 font-bold bg-green-50 px-4 py-2 rounded-xl">
-              <ShieldCheck size={18} /> Không gian dữ liệu riêng tư
+              <ShieldCheck size={18} /> Dữ liệu an toàn trên máy bạn
             </div>
           </div>
 
@@ -314,22 +246,9 @@
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Từ vựng</span>
             </div>
             <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
-              <span className="text-4xl font-black text-pink-500 mb-1">Đám mây</span>
+              <span className="text-4xl font-black text-pink-500 mb-1">Local</span>
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Lưu trữ</span>
             </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
-            <h3 className="text-sm font-bold text-slate-800 mb-3 uppercase tracking-wider">Cài đặt</h3>
-            <button 
-              onClick={onLogout}
-              className="w-full py-4 bg-slate-50 text-red-500 hover:bg-red-50 font-bold rounded-2xl active:scale-95 transition-all flex items-center justify-center gap-2 border border-slate-100 hover:border-red-100"
-            >
-              <LogOut size={20} /> Đăng xuất / Tải lại trang
-            </button>
-            <p className="text-xs text-slate-400 text-center mt-3 font-medium px-4">
-              Nếu đăng xuất tài khoản ẩn danh, phiên làm việc sẽ thiết lập lại ID mới.
-            </p>
           </div>
         </div>
       );
@@ -391,6 +310,7 @@
       const generateMnemonic = async () => {
         if (!currentWord) return;
         setIsGeneratingMnemonic(true); setMnemonic(null);
+        // THAY API KEY CỦA BẠN VÀO DƯỚI ĐÂY
         const apiKey = "AIzaSyChSQVTITouzn9QBZhLsfnKGBlUZtAEeKc";
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
         const prompt = `Bạn là chuyên gia ngôn ngữ. Tạo một mẹo ghi nhớ cực kỳ ngắn gọn, vui nhộn bằng tiếng Việt cho từ tiếng Anh sau:
@@ -418,6 +338,7 @@
         if (isSpeaking || !currentWord) return;
         setIsSpeaking(true);
         try {
+          // THAY API KEY CỦA BẠN VÀO DƯỚI ĐÂY
           const apiKey = "AIzaSyChSQVTITouzn9QBZhLsfnKGBlUZtAEeKc"; 
           const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
           const res = await fetch(url, {
@@ -477,10 +398,10 @@
       if (!studyList || studyList.length === 0) return (
         <div className="h-full flex flex-col items-center justify-center text-center p-8 animate-in zoom-in-95">
           <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center mb-6 text-indigo-300">
-            <Cloud size={48} />
+            <HardDrive size={48} />
           </div>
           <h2 className="text-xl font-bold text-slate-800 mb-2">Kho từ vựng trống</h2>
-          <p className="text-slate-500 mb-8 font-medium">Dữ liệu của bạn được lưu an toàn trên Đám mây. Hãy bắt đầu thêm từ vựng mới!</p>
+          <p className="text-slate-500 mb-8 font-medium">Bạn chưa lưu từ nào. Hãy bắt đầu thêm từ vựng mới!</p>
           <button onClick={onAddSample} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl active:scale-95 transition-transform shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
             <Wand2 size={20} /> Tải bộ từ mẫu (Đầu tư)
           </button>
@@ -623,6 +544,7 @@
         const selectedWords = shuffledWords.slice(0, 8);
         const wordListStr = selectedWords.map(w => w.word).join(', ');
 
+        // THAY API KEY CỦA BẠN VÀO DƯỚI ĐÂY
         const apiKey = "AIzaSyChSQVTITouzn9QBZhLsfnKGBlUZtAEeKc";
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
         const prompt = `Viết một đoạn văn cực kỳ ngắn (tối đa 150 chữ) bằng tiếng Việt có chêm chính xác các từ tiếng Anh sau: ${wordListStr}. 
@@ -809,6 +731,7 @@
       const generateWordInfo = async () => {
         if (!newWord.word.trim()) { setErrorMsg("Vui lòng nhập từ tiếng Anh trước."); return; }
         setErrorMsg(null); setIsGenerating(true);
+        // THAY API KEY CỦA BẠN VÀO DƯỚI ĐÂY
         const apiKey = "AIzaSyChSQVTITouzn9QBZhLsfnKGBlUZtAEeKc";
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
         const payload = {
@@ -857,7 +780,7 @@
               <input type="text" placeholder="Phiên âm (Tùy chọn)" value={newWord.phonetic} onChange={e => setNewWord({...newWord, phonetic: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-2xl text-sm border-none outline-none focus:ring-2 focus:ring-indigo-500 font-medium" />
               <textarea placeholder="Ví dụ..." value={newWord.example} onChange={e => setNewWord({...newWord, example: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-2xl text-sm border-none outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-20 font-medium"></textarea>
               <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-2xl mt-2 active:scale-95 transition-transform shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
-                 <Cloud size={18} /> Lưu lên Đám mây
+                 <HardDrive size={18} /> Lưu vào máy
               </button>
             </form>
           </div>
@@ -885,7 +808,7 @@
                         <h3 className="font-bold text-slate-800 truncate">{w.word} <span className="text-xs text-indigo-500 font-mono ml-1">{w.phonetic}</span></h3>
                         <p className="text-sm font-medium text-slate-600 truncate">{w.meaning}</p>
                       </div>
-                      <button onClick={() => { if(window.confirm("Xóa từ này khỏi Đám mây?")) onDelete(w.id) }} className="p-2 text-slate-300 hover:text-red-500 active:bg-red-50 rounded-xl transition-colors shrink-0"><Trash2 size={20} /></button>
+                      <button onClick={() => { if(window.confirm("Xóa từ này?")) onDelete(w.id) }} className="p-2 text-slate-300 hover:text-red-500 active:bg-red-50 rounded-xl transition-colors shrink-0"><Trash2 size={20} /></button>
                     </div>
                   ))}
                 </div>
@@ -896,7 +819,6 @@
       );
     }
 
-    // Gắn Component App vào thẻ div có id="root"
     const root = createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
