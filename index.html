@@ -327,7 +327,7 @@
 
         setIsGeneratingMnemonic(true); setMnemonic(null);
         
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
         const prompt = `Bạn là chuyên gia ngôn ngữ. Tạo một mẹo ghi nhớ cực kỳ ngắn gọn, vui nhộn bằng tiếng Việt cho từ tiếng Anh sau:
         - Từ: "${currentWord.word}"
         - Nghĩa: ${currentWord.meaning}
@@ -546,7 +546,7 @@
         const selectedWords = shuffledWords.slice(0, 8);
         const wordListStr = selectedWords.map(w => w.word).join(', ');
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
         const prompt = `Viết một đoạn văn cực kỳ ngắn (tối đa 150 chữ) bằng tiếng Việt có chêm chính xác các từ tiếng Anh sau: ${wordListStr}. 
         Mục đích giúp đoán nghĩa từ qua ngữ cảnh. Hãy in đậm chính xác các từ tiếng Anh đó (ví dụ: **Invest**).
         Lưu ý: Bạn CHỈ ĐƯỢC PHÉP bôi đậm bằng dấu ** ngay sát từ tiếng Anh, không bôi đậm các từ tiếng Việt khác.`;
@@ -738,7 +738,7 @@
         }
 
         setErrorMsg(null); setIsGenerating(true);
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
         const payload = {
           contents: [{ parts: [{ text: `Cho IPA, nghĩa Tiếng Việt, và 1 ví dụ tiếng Anh cho từ: "${newWord.word}". Chỉ trả JSON: phonetic, meaning, example.` }] }],
           generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { phonetic: { type: "STRING" }, meaning: { type: "STRING" }, example: { type: "STRING" } }, required: ["phonetic", "meaning", "example"] } }
