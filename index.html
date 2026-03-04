@@ -30,9 +30,9 @@
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useRef } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Volume2, Mic, Plus, List, BookOpen, ChevronRight, ChevronLeft, Trash2, CheckCircle2, XCircle, AlertCircle, Wand2, Loader2, BrainCircuit, Trophy, RotateCcw, User, ShieldCheck, HardDrive, Smartphone } from 'lucide-react';
+    import { Volume2, Mic, Plus, List, BookOpen, ChevronRight, ChevronLeft, Trash2, CheckCircle2, XCircle, AlertCircle, Wand2, Loader2, BrainCircuit, Trophy, RotateCcw, User, ShieldCheck, HardDrive, Smartphone, Key } from 'lucide-react';
     
-    // Dữ liệu mẫu (Về đầu tư an toàn theo sở thích)
+    // Dữ liệu mẫu
     const sampleVocabulary = [
       { id: '1', word: 'Invest', phonetic: '/ɪnˈvɛst/', meaning: 'Đầu tư', example: 'It is important to invest your money safely to build wealth.', createdAt: Date.now() },
       { id: '2', word: 'Asset', phonetic: '/ˈæsɛt/', meaning: 'Tài sản', example: 'Real estate and bonds are considered relatively safe assets.', createdAt: Date.now() - 1000 },
@@ -130,7 +130,6 @@
         };
       }, []);
 
-      // Load dữ liệu từ Local Storage
       useEffect(() => {
         try {
           const savedData = localStorage.getItem('vocab_app_data');
@@ -162,7 +161,6 @@
 
       const addSampleData = () => {
         setLoading(true);
-        // Ngăn trùng lặp id
         const cleanSample = sampleVocabulary.map(w => ({...w, id: Date.now().toString() + Math.random()}));
         const updatedWords = [...cleanSample, ...words];
         saveToStorage(updatedWords);
@@ -226,8 +224,28 @@
     );
 
     function ProfileMode({ wordsCount }) {
+      const [apiKeyInput, setApiKeyInput] = useState(localStorage.getItem('gemini_api_key') || '');
+      const [isSaved, setIsSaved] = useState(!!localStorage.getItem('gemini_api_key'));
+
+      const saveKey = () => {
+        if(apiKeyInput.trim() === '') {
+           alert('Vui lòng nhập API Key!'); return;
+        }
+        localStorage.setItem('gemini_api_key', apiKeyInput.trim());
+        setIsSaved(true);
+        alert('Đã lưu API Key an toàn trên máy!');
+      };
+
+      const clearKey = () => {
+        if(window.confirm('Bạn muốn xóa API Key khỏi máy?')) {
+          localStorage.removeItem('gemini_api_key');
+          setApiKeyInput('');
+          setIsSaved(false);
+        }
+      };
+
       return (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
             <div className="w-24 h-24 bg-gradient-to-br from-teal-400 to-indigo-500 rounded-full flex items-center justify-center text-white text-3xl font-black mb-4 shadow-lg shadow-indigo-200">
               <Smartphone size={40} />
@@ -235,7 +253,7 @@
             <h2 className="text-xl font-black text-slate-800 mb-1">Thiết bị cá nhân</h2>
             <p className="text-sm font-mono text-slate-500 bg-slate-100 px-3 py-1 rounded-lg">Offline Mode</p>
             
-            <div className="mt-6 flex items-center gap-2 text-sm text-green-600 font-bold bg-green-50 px-4 py-2 rounded-xl">
+            <div className="mt-4 flex items-center gap-2 text-sm text-green-600 font-bold bg-green-50 px-4 py-2 rounded-xl">
               <ShieldCheck size={18} /> Dữ liệu an toàn trên máy bạn
             </div>
           </div>
@@ -248,6 +266,35 @@
             <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
               <span className="text-4xl font-black text-pink-500 mb-1">Local</span>
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Lưu trữ</span>
+            </div>
+          </div>
+
+          {/* Khu vực két sắt API Key */}
+          <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+            <h3 className="text-sm font-bold text-slate-800 mb-2 uppercase tracking-wider flex items-center gap-2">
+              <Key size={18} className="text-amber-500" /> Cài đặt API Key (Cho AI)
+            </h3>
+            <p className="text-xs text-slate-500 mb-4 font-medium leading-relaxed">
+              Mã API sẽ được mã hóa và cất giữ an toàn ngay trong bộ nhớ điện thoại/máy tính của bạn, không tải lên mạng.
+            </p>
+            <div className="flex flex-col gap-3">
+              <input
+                type="password"
+                placeholder="Dán API Key của bạn vào đây..."
+                value={apiKeyInput}
+                onChange={(e) => { setApiKeyInput(e.target.value); setIsSaved(false); }}
+                className="w-full bg-slate-50 px-4 py-3 rounded-2xl text-sm border-none outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+              />
+              <div className="flex gap-2">
+                <button onClick={saveKey} className={`flex-1 text-white font-bold py-3 rounded-2xl active:scale-95 transition-all text-sm shadow-md ${isSaved ? 'bg-green-500 shadow-green-500/30' : 'bg-indigo-600 shadow-indigo-600/30'}`}>
+                  {isSaved ? '✅ Đã lưu Key' : 'Lưu Key vào máy'}
+                </button>
+                {isSaved && (
+                   <button onClick={clearKey} className="px-5 bg-red-50 hover:bg-red-100 text-red-600 font-bold py-3 rounded-2xl active:scale-95 transition-all text-sm">
+                     Xóa
+                   </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -309,9 +356,15 @@
 
       const generateMnemonic = async () => {
         if (!currentWord) return;
+        
+        const apiKey = localStorage.getItem('gemini_api_key');
+        if (!apiKey) {
+           setMnemonic("❌ Thiếu khóa bảo mật! Vui lòng vào tab Tài khoản nhập API Key.");
+           return;
+        }
+
         setIsGeneratingMnemonic(true); setMnemonic(null);
-        // THAY API KEY CỦA BẠN VÀO DƯỚI ĐÂY
-        const apiKey = "AIzaSyChSQVTITouzn9QBZhLsfnKGBlUZtAEeKc";
+        
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
         const prompt = `Bạn là chuyên gia ngôn ngữ. Tạo một mẹo ghi nhớ cực kỳ ngắn gọn, vui nhộn bằng tiếng Việt cho từ tiếng Anh sau:
         - Từ: "${currentWord.word}"
@@ -328,7 +381,7 @@
             if (text) { setMnemonic(text.trim()); setIsGeneratingMnemonic(false); return; }
             throw new Error('Invalid response');
           } catch (error) {
-            if (i === 4) { setMnemonic("❌ AI đang bận. Thử lại sau!"); setIsGeneratingMnemonic(false); }
+            if (i === 4) { setMnemonic("❌ AI đang bận hoặc Key bị lỗi. Thử lại sau!"); setIsGeneratingMnemonic(false); }
             else { await new Promise(r => setTimeout(r, delay)); delay *= 2; }
           }
         }
@@ -337,9 +390,10 @@
       const playAudio = async () => {
         if (isSpeaking || !currentWord) return;
         setIsSpeaking(true);
+        const apiKey = localStorage.getItem('gemini_api_key');
+        
         try {
-          // THAY API KEY CỦA BẠN VÀO DƯỚI ĐÂY
-          const apiKey = "AIzaSyChSQVTITouzn9QBZhLsfnKGBlUZtAEeKc"; 
+          if (!apiKey) throw new Error("No API Key"); // Fallback to window.speechSynthesis
           const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
           const res = await fetch(url, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -537,6 +591,13 @@
 
       const generateStory = async () => {
         if (words.length < 5) { alert("Cần ít nhất 5 từ để AI viết truyện!"); return; }
+        
+        const apiKey = localStorage.getItem('gemini_api_key');
+        if (!apiKey) {
+           alert("Vui lòng vào tab Tài khoản nhập API Key trước khi dùng chức năng này!");
+           return;
+        }
+
         setQuizState('story');
         setIsGeneratingStory(true); setStoryContent(null);
 
@@ -544,8 +605,6 @@
         const selectedWords = shuffledWords.slice(0, 8);
         const wordListStr = selectedWords.map(w => w.word).join(', ');
 
-        // THAY API KEY CỦA BẠN VÀO DƯỚI ĐÂY
-        const apiKey = "AIzaSyChSQVTITouzn9QBZhLsfnKGBlUZtAEeKc";
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
         const prompt = `Viết một đoạn văn cực kỳ ngắn (tối đa 150 chữ) bằng tiếng Việt có chêm chính xác các từ tiếng Anh sau: ${wordListStr}. 
         Mục đích giúp đoán nghĩa từ qua ngữ cảnh. Hãy in đậm chính xác các từ tiếng Anh đó (ví dụ: **Invest**).
@@ -561,7 +620,7 @@
             if (text) { setStoryContent(text); setIsGeneratingStory(false); return; }
             throw new Error("Invalid format");
           } catch (e) {
-            if (i === 4) { setStoryContent("❌ Không thể sinh truyện lúc này. Hãy thử lại sau!"); setIsGeneratingStory(false); } 
+            if (i === 4) { setStoryContent("❌ API Key không hợp lệ hoặc lỗi mạng. Hãy kiểm tra lại!"); setIsGeneratingStory(false); } 
             else { await new Promise(r => setTimeout(r, delay)); delay *= 2; }
           }
         }
@@ -730,9 +789,14 @@
 
       const generateWordInfo = async () => {
         if (!newWord.word.trim()) { setErrorMsg("Vui lòng nhập từ tiếng Anh trước."); return; }
+        
+        const apiKey = localStorage.getItem('gemini_api_key');
+        if (!apiKey) {
+           setErrorMsg("Vui lòng vào tab Tài khoản nhập API Key trước!");
+           return;
+        }
+
         setErrorMsg(null); setIsGenerating(true);
-        // THAY API KEY CỦA BẠN VÀO DƯỚI ĐÂY
-        const apiKey = "AIzaSyChSQVTITouzn9QBZhLsfnKGBlUZtAEeKc";
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
         const payload = {
           contents: [{ parts: [{ text: `Cho IPA, nghĩa Tiếng Việt, và 1 ví dụ tiếng Anh cho từ: "${newWord.word}". Chỉ trả JSON: phonetic, meaning, example.` }] }],
@@ -751,7 +815,8 @@
               setIsGenerating(false); return;
             } throw new Error('Data format error');
           } catch (err) {
-            if (i === 4) { setErrorMsg("Lỗi tạo tự động. Vui lòng thử lại"); setIsGenerating(false); } else { await new Promise(r => setTimeout(r, delay)); delay *= 2; }
+            if (i === 4) { setErrorMsg("API Key lỗi hoặc AI đang quá tải. Thử lại sau!"); setIsGenerating(false); } 
+            else { await new Promise(r => setTimeout(r, delay)); delay *= 2; }
           }
         }
       };
