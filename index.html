@@ -41,42 +41,6 @@
       { id: '5', word: 'Interest', phonetic: '/ˈɪntrɪst/', meaning: 'Lãi suất', example: 'The bank offers a high interest rate for safe savings.', createdAt: Date.now() - 4000 }
     ];
 
-    function base64ToArrayBuffer(base64) {
-      const binaryString = window.atob(base64);
-      const len = binaryString.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
-      return bytes.buffer;
-    }
-
-    function pcmToWav(pcmData, sampleRate) {
-      const numChannels = 1;
-      const bitsPerSample = 16;
-      const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-      const blockAlign = numChannels * (bitsPerSample / 8);
-      const dataSize = pcmData.byteLength;
-      const chunkSize = 36 + dataSize;
-      const buffer = new ArrayBuffer(44 + dataSize);
-      const view = new DataView(buffer);
-
-      const writeString = (view, offset, string) => {
-        for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
-      };
-
-      writeString(view, 0, 'RIFF'); view.setUint32(4, chunkSize, true);
-      writeString(view, 8, 'WAVE'); writeString(view, 12, 'fmt ');
-      view.setUint32(16, 16, true); view.setUint16(20, 1, true); 
-      view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true);
-      view.setUint32(28, byteRate, true); view.setUint16(32, blockAlign, true);
-      view.setUint16(34, bitsPerSample, true); writeString(view, 36, 'data');
-      view.setUint32(40, dataSize, true);
-
-      const pcmView = new Uint8Array(pcmData);
-      for (let i = 0; i < pcmView.length; i++) view.setUint8(44 + i, pcmView[i]);
-
-      return new Blob([view], { type: 'audio/wav' });
-    }
-
     function TooltipWord({ word, meaning }) {
       const [show, setShow] = useState(false);
       const toggleTimer = useRef(null);
@@ -269,13 +233,12 @@
             </div>
           </div>
 
-          {/* Khu vực két sắt API Key */}
           <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
             <h3 className="text-sm font-bold text-slate-800 mb-2 uppercase tracking-wider flex items-center gap-2">
               <Key size={18} className="text-amber-500" /> Cài đặt API Key (Cho AI)
             </h3>
             <p className="text-xs text-slate-500 mb-4 font-medium leading-relaxed">
-              Mã API sẽ được mã hóa và cất giữ an toàn ngay trong bộ nhớ điện thoại/máy tính của bạn, không tải lên mạng.
+              Mã API sẽ được cất giữ an toàn ngay trong trình duyệt của bạn, không tải lên mạng.
             </p>
             <div className="flex flex-col gap-3">
               <input
@@ -313,7 +276,6 @@
       const [isGeneratingMnemonic, setIsGeneratingMnemonic] = useState(false);
 
       const recognitionRef = useRef(null);
-      const audioRef = useRef(null);
 
       useEffect(() => {
         if (words && words.length > 0) {
@@ -329,7 +291,7 @@
       const currentWord = studyList[currentIndex];
 
       useEffect(() => {
-        if (audioRef.current) audioRef.current.pause();
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
         setFeedback(null); setIsSpeaking(false); setMnemonic(null);
       }, [currentIndex]);
 
@@ -387,40 +349,20 @@
         }
       };
 
-      const playAudio = async () => {
+      const playAudio = () => {
         if (isSpeaking || !currentWord) return;
         setIsSpeaking(true);
-        const apiKey = localStorage.getItem('gemini_api_key');
-        
-        try {
-          if (!apiKey) throw new Error("No API Key"); // Fallback to window.speechSynthesis
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
-          const res = await fetch(url, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: currentWord.word }] }], generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } } }, model: "gemini-2.5-flash-preview-tts" })
-          });
-          if (!res.ok) throw new Error("API Error");
-          const data = await res.json();
-          const inlineData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-          if (inlineData) {
-            let sampleRate = 24000;
-            const rateMatch = (inlineData.mimeType || "").match(/rate=(\d+)/);
-            if (rateMatch) sampleRate = parseInt(rateMatch[1], 10);
-            const pcmBuffer = base64ToArrayBuffer(inlineData.data);
-            const audio = new Audio(URL.createObjectURL(pcmToWav(pcmBuffer, sampleRate)));
-            audioRef.current = audio;
-            audio.onended = () => setIsSpeaking(false);
-            audio.onerror = () => setIsSpeaking(false);
-            await audio.play();
-          } else throw new Error("No audio data");
-        } catch (err) {
-          if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(currentWord.word);
-            utterance.lang = 'en-US'; utterance.rate = 0.85;
-            utterance.onend = () => setIsSpeaking(false);
-            window.speechSynthesis.speak(utterance);
-          } else { setIsSpeaking(false); alert("Thiết bị không hỗ trợ âm thanh."); }
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(currentWord.word);
+          utterance.lang = 'en-US'; 
+          utterance.rate = 0.85;
+          utterance.onend = () => setIsSpeaking(false);
+          utterance.onerror = () => setIsSpeaking(false);
+          window.speechSynthesis.speak(utterance);
+        } else { 
+          setIsSpeaking(false); 
+          alert("Thiết bị không hỗ trợ âm thanh."); 
         }
       };
 
@@ -428,7 +370,6 @@
         e.preventDefault(); 
         if (!speechSupported) return;
         setFeedback(null); setIsRecording(true);
-        if (audioRef.current) audioRef.current.pause();
         if ('speechSynthesis' in window) window.speechSynthesis.cancel();
         try { recognitionRef.current.start(); } catch (e) { setIsRecording(false); }
       };
