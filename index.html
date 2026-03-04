@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>App Học Từ Vựng AI - V4.0</title>
+  <title>App Học Từ Vựng AI - V4.1</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -57,11 +57,11 @@
 
     // --- Dữ liệu mẫu ---
     const sampleVocabulary = [
-      { word: 'Invest', partOfSpeech: 'v', phonetic: '/ɪnˈvɛst/', meaning: 'Đầu tư', example: 'I want to invest my money safely.' },
-      { word: 'Asset', partOfSpeech: 'n', phonetic: '/ˈæsɛt/', meaning: 'Tài sản', example: 'A house is a good asset.' },
-      { word: 'Pronunciation', partOfSpeech: 'n', phonetic: '/prəˌnʌnsiˈeɪʃən/', meaning: 'Cách phát âm', example: 'Your pronunciation is very clear.' },
+      { word: 'Invest', partOfSpeech: 'v', phonetic: '/ɪnˈvɛst/', meaning: 'Đầu tư, bỏ thời gian/công sức vào việc gì', example: 'I want to invest my money safely.' },
+      { word: 'Asset', partOfSpeech: 'n', phonetic: '/ˈæsɛt/', meaning: 'Tài sản, vốn quý, điểm mạnh', example: 'A house is a good asset.' },
+      { word: 'Pronunciation', partOfSpeech: 'n', phonetic: '/prəˌnʌnsiˈeɪʃən/', meaning: 'Cách phát âm, sự phát âm', example: 'Your pronunciation is very clear.' },
       { word: 'Stock market', partOfSpeech: '', phonetic: '/ˈstɒk ˌmɑːkɪt/', meaning: 'Thị trường chứng khoán', example: 'The stock market can be risky.' },
-      { word: 'Interest', partOfSpeech: 'n', phonetic: '/ˈɪntrɪst/', meaning: 'Lãi suất', example: 'This bank has good interest.' }
+      { word: 'Interest', partOfSpeech: 'n', phonetic: '/ˈɪntrɪst/', meaning: 'Lãi suất, sự quan tâm, sở thích', example: 'This bank has good interest.' }
     ];
 
     // --- Utilities: Xử lý Âm thanh ---
@@ -673,7 +673,10 @@
         setAiState({ error: null, isGenerating: true });
         try {
           const contextInstruction = newWord.context.trim() ? `Lưu ý: Hãy giải thích nghĩa và đặt câu ví dụ trong ngữ cảnh / chuyên ngành "${newWord.context.trim()}".` : `Sử dụng nghĩa thông dụng và phổ biến nhất.`;
-          const prompt = `Trình bày IPA, nghĩa Tiếng Việt, và 1 câu ví dụ tiếng Anh siêu ngắn gọn cho từ: "${newWord.word}". ${contextInstruction} QUAN TRỌNG: Nếu "${newWord.word}" là từ đơn hoặc ghép có gạch ngang, trả về từ loại (n, v, adj...). Nếu là cụm từ có dấu cách, trả về "". Chỉ trả JSON: {"phonetic": "...", "meaning": "...", "example": "...", "partOfSpeech": "..."}`;
+          
+          // Đã cập nhật Prompt mở rộng nghĩa
+          const prompt = `Trình bày IPA, nghĩa Tiếng Việt ĐẦY ĐỦ (liệt kê cả nghĩa chính và các nghĩa phụ phổ biến nhất, cách nhau bằng dấu phẩy), và 1 câu ví dụ tiếng Anh ngắn gọn cho từ: "${newWord.word}". ${contextInstruction} QUAN TRỌNG: Nếu "${newWord.word}" là từ đơn hoặc ghép có gạch ngang, trả về từ loại (n, v, adj...). Nếu là cụm từ, trả về "". Chỉ trả JSON: {"phonetic": "...", "meaning": "...", "example": "...", "partOfSpeech": "..."}`;
+          
           const text = await aiHelpers.generateText(prompt, true);
           const info = JSON.parse(text || "{}");
           if (info.meaning) setNewWord(p => ({ ...p, phonetic: info.phonetic || '', meaning: info.meaning || '', example: info.example || '', partOfSpeech: info.partOfSpeech || '' }));
@@ -730,7 +733,8 @@
                           {w.partOfSpeech && <span className="text-xs text-indigo-400 italic ml-1.5 font-serif">({w.partOfSpeech})</span>}
                           <span className="text-xs text-indigo-500 font-mono ml-1.5">{w.phonetic}</span>
                         </h3>
-                        <p className="text-sm font-medium text-slate-600 truncate mt-0.5">{w.meaning}{w.context && <span className="ml-2 text-[10px] font-bold bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-md align-middle">{w.context}</span>}</p>
+                        {/* Đã chỉnh line-clamp-2 để đọc được nghĩa dài */}
+                        <p className="text-sm font-medium text-slate-600 line-clamp-2 mt-0.5">{w.meaning} {w.context && <span className="ml-1 text-[10px] font-bold bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-md align-middle">{w.context}</span>}</p>
                       </div>
                       <button onClick={() => { if(window.confirm("Xóa từ này?")) onDelete(w.id) }} className="p-2 text-slate-300 hover:text-red-500 active:bg-red-50 rounded-xl shrink-0 transition-colors"><Trash2 size={20}/></button>
                     </div>
