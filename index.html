@@ -1,0 +1,885 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Volume2, Mic, Plus, List, BookOpen, ChevronRight, ChevronLeft, Trash2, CheckCircle2, XCircle, AlertCircle, Wand2, Loader2, BrainCircuit, Trophy, RotateCcw, Cloud, CloudOff, User, LogOut, ShieldCheck } from 'lucide-react';
+
+// --- Firebase Imports ---
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+
+// --- Khởi tạo Firebase ---
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+// Dữ liệu mẫu (Về đầu tư an toàn theo sở thích)
+const sampleVocabulary = [
+  { word: 'Invest', phonetic: '/ɪnˈvɛst/', meaning: 'Đầu tư', example: 'It is important to invest your money safely to build wealth.' },
+  { word: 'Asset', phonetic: '/ˈæsɛt/', meaning: 'Tài sản', example: 'Real estate and bonds are considered relatively safe assets.' },
+  { word: 'Pronunciation', phonetic: '/prəˌnʌnsiˈeɪʃən/', meaning: 'Cách phát âm', example: 'Practice speaking out loud to improve your pronunciation.' },
+  { word: 'Portfolio', phonetic: '/pɔːtˈfəʊliəʊ/', meaning: 'Danh mục đầu tư', example: 'A diverse portfolio reduces risk.' },
+  { word: 'Interest', phonetic: '/ˈɪntrɪst/', meaning: 'Lãi suất', example: 'The bank offers a high interest rate for safe savings.' }
+];
+
+// --- Tiện ích chuyển đổi âm thanh (PCM sang WAV) cho AI TTS ---
+function base64ToArrayBuffer(base64) {
+  const binaryString = window.atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+  return bytes.buffer;
+}
+
+function pcmToWav(pcmData, sampleRate) {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const dataSize = pcmData.byteLength;
+  const chunkSize = 36 + dataSize;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeString = (view, offset, string) => {
+    for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
+  };
+
+  writeString(view, 0, 'RIFF'); view.setUint32(4, chunkSize, true);
+  writeString(view, 8, 'WAVE'); writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); 
+  view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true); view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true); writeString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  const pcmView = new Uint8Array(pcmData);
+  for (let i = 0; i < pcmView.length; i++) view.setUint8(44 + i, pcmView[i]);
+
+  return new Blob([view], { type: 'audio/wav' });
+}
+
+// --- Component Tooltip Word (Hiển thị nghĩa khi Hover/Chạm) ---
+function TooltipWord({ word, meaning }) {
+  const [show, setShow] = useState(false);
+  const toggleTimer = useRef(null);
+
+  const handleTouch = (e) => {
+    // Ngăn chặn cuộn trang hoặc hành vi mặc định khi chạm giữ
+    setShow(true);
+    if (toggleTimer.current) clearTimeout(toggleTimer.current);
+    // Tự động ẩn sau 2.5s trên mobile nếu người dùng quên bỏ tay
+    toggleTimer.current = setTimeout(() => setShow(false), 2500);
+  };
+
+  const handleTouchEnd = () => {
+    setShow(false);
+    if (toggleTimer.current) clearTimeout(toggleTimer.current);
+  };
+
+  return (
+    <span 
+      className="relative inline-block mx-0.5"
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+      onTouchStart={handleTouch}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+      onContextMenu={(e) => e.preventDefault()} // Chặn menu chuột phải/copy trên mobile khi chạm giữ
+    >
+      <strong className="text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md border border-rose-200 cursor-pointer active:bg-rose-100 transition-colors select-none">
+        {word}
+      </strong>
+      
+      {show && (
+        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-slate-800 text-white text-[13px] font-bold rounded-xl whitespace-nowrap z-50 shadow-xl pointer-events-none animate-in fade-in zoom-in-95 duration-200">
+          {meaning}
+          <svg className="absolute top-full left-1/2 -translate-x-1/2 w-3 h-3 text-slate-800" fill="currentColor" viewBox="0 0 8 8"><path d="M0 0l4 4 4-4z" /></svg>
+        </span>
+      )}
+    </span>
+  );
+}
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('study'); // 'study', 'quiz', 'manage', 'profile'
+  
+  // States cho Firebase & Data
+  const [user, setUser] = useState(null);
+  const [words, setWords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [syncStatus, setSyncStatus] = useState('connecting'); // 'connecting', 'synced', 'error'
+
+  // Khóa cuộn trang của body để app giống Native App
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehaviorY = 'none';
+    return () => {
+      document.body.style.overflow = 'auto';
+      document.body.style.overscrollBehaviorY = 'auto';
+    };
+  }, []);
+
+  // --- Firebase: Khởi tạo Xác thực (Auth) ---
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (error) {
+        console.error("Auth Error:", error);
+        setSyncStatus('error');
+        setLoading(false);
+      }
+    };
+    initAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (!currentUser) setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // --- Firebase: Lắng nghe dữ liệu riêng biệt cho từng người dùng ---
+  useEffect(() => {
+    if (!user) return;
+    
+    // ĐƯỜNG DẪN ĐỘC LẬP
+    const vocabRef = collection(db, 'artifacts', appId, 'users', user.uid, 'vocabulary');
+    
+    const unsubscribe = onSnapshot(vocabRef, (snapshot) => {
+      const vocabList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      vocabList.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      
+      setWords(vocabList);
+      setLoading(false);
+      setSyncStatus('synced');
+    }, (error) => {
+      console.error("Firestore error:", error);
+      setSyncStatus('error');
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // --- Các hàm thao tác dữ liệu ---
+  const handleAddWordToDB = async (wordData) => {
+    if (!user) return;
+    setSyncStatus('connecting'); 
+    try {
+      const vocabRef = collection(db, 'artifacts', appId, 'users', user.uid, 'vocabulary');
+      const newDocRef = doc(vocabRef);
+      await setDoc(newDocRef, { ...wordData, createdAt: Date.now() });
+    } catch (error) {
+      console.error("Error adding doc: ", error);
+      setSyncStatus('error');
+    }
+  };
+
+  const handleDeleteFromDB = async (id) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'vocabulary', id));
+    } catch (error) {
+      console.error("Error deleting doc: ", error);
+    }
+  };
+
+  const addSampleData = async () => {
+    if (!user) return;
+    setLoading(true);
+    for (const word of sampleVocabulary) {
+      await handleAddWordToDB(word);
+    }
+    setLoading(false);
+  };
+
+  const handleLogout = async () => {
+    if (window.confirm("Bạn có chắc chắn muốn đăng xuất?")) {
+      await signOut(auth);
+      window.location.reload();
+    }
+  };
+
+  return (
+    <div className="h-[100dvh] w-full bg-slate-900 flex justify-center">
+      <div className="h-full w-full max-w-[430px] bg-slate-50 relative flex flex-col shadow-2xl overflow-hidden font-sans select-none">
+        
+        {/* Header App */}
+        <header className="shrink-0 bg-indigo-600 text-white pt-safe pb-4 px-4 shadow-md z-20">
+          <div className="flex items-center justify-between pt-4">
+            <h1 className="text-xl font-bold flex items-center gap-2 tracking-tight">
+              <BookOpen size={24} />
+              VocabMaster AI
+            </h1>
+            <div className="flex items-center gap-1.5 text-[10px] font-bold bg-indigo-800/40 px-2.5 py-1.5 rounded-full backdrop-blur-sm">
+              {syncStatus === 'connecting' && <Loader2 size={14} className="animate-spin text-white" />}
+              {syncStatus === 'synced' && <Cloud size={14} className="text-green-300" />}
+              {syncStatus === 'error' && <CloudOff size={14} className="text-red-300" />}
+            </div>
+          </div>
+        </header>
+
+        {/* Nội dung chính */}
+        <main className="flex-1 overflow-y-auto w-full relative scroll-smooth pb-24 bg-slate-50">
+          {loading ? (
+            <div className="h-full flex flex-col items-center justify-center text-indigo-500 gap-3">
+              <Loader2 size={40} className="animate-spin" />
+              <p className="font-bold text-slate-500 animate-pulse">Đang tải dữ liệu cá nhân...</p>
+            </div>
+          ) : (
+            <div className="p-4 h-full">
+              {activeTab === 'study' && <StudyMode words={words} onAddSample={addSampleData} />}
+              {activeTab === 'quiz' && <QuizMode words={words} />}
+              {activeTab === 'manage' && <ManageMode words={words} onAdd={handleAddWordToDB} onDelete={handleDeleteFromDB} onAddSample={addSampleData} />}
+              {activeTab === 'profile' && <ProfileMode user={user} wordsCount={words.length} onLogout={handleLogout} />}
+            </div>
+          )}
+        </main>
+
+        {/* Bottom Navigation Bar */}
+        <nav className="absolute bottom-0 w-full bg-white border-t border-slate-200 flex justify-around items-center h-[72px] pb-safe z-30 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+          <MobileNavBtn active={activeTab === 'study'} onClick={() => setActiveTab('study')} icon={<BookOpen size={24}/>} label="Học từ" />
+          <MobileNavBtn active={activeTab === 'quiz'} onClick={() => setActiveTab('quiz')} icon={<BrainCircuit size={24}/>} label="Kiểm tra" />
+          <MobileNavBtn active={activeTab === 'manage'} onClick={() => setActiveTab('manage')} icon={<List size={24}/>} label="Quản lý" />
+          <MobileNavBtn active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} icon={<User size={24}/>} label="Tài khoản" />
+        </nav>
+      </div>
+    </div>
+  );
+}
+
+const MobileNavBtn = ({ active, onClick, icon, label }) => (
+  <button 
+    onClick={onClick} 
+    className={`flex-1 h-full flex flex-col items-center justify-center gap-1.5 transition-colors active:scale-95 touch-manipulation
+      ${active ? 'text-indigo-600 font-bold' : 'text-slate-400 font-medium hover:text-slate-600'}`}
+  >
+    <div className={`transition-transform duration-200 ${active ? '-translate-y-1' : ''}`}>
+      {icon}
+    </div>
+    <span className="text-[10px] tracking-wide">{label}</span>
+  </button>
+);
+
+// --- Component: Giao diện Tài khoản (Profile) ---
+function ProfileMode({ user, wordsCount, onLogout }) {
+  if (!user) return null;
+
+  const shortId = user.uid.substring(0, 8).toUpperCase();
+
+  return (
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
+        <div className="w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white text-3xl font-black mb-4 shadow-lg shadow-indigo-200">
+          {shortId.charAt(0)}
+        </div>
+        <h2 className="text-xl font-black text-slate-800 mb-1">
+          {user.isAnonymous ? 'Học viên Ẩn danh' : 'Thành viên'}
+        </h2>
+        <p className="text-sm font-mono text-slate-500 bg-slate-100 px-3 py-1 rounded-lg">ID: {shortId}</p>
+        
+        <div className="mt-6 flex items-center gap-2 text-sm text-green-600 font-bold bg-green-50 px-4 py-2 rounded-xl">
+          <ShieldCheck size={18} /> Không gian dữ liệu riêng tư
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
+          <span className="text-4xl font-black text-indigo-600 mb-1">{wordsCount}</span>
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Từ vựng</span>
+        </div>
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
+          <span className="text-4xl font-black text-pink-500 mb-1">Đám mây</span>
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Lưu trữ</span>
+        </div>
+      </div>
+
+      <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+        <h3 className="text-sm font-bold text-slate-800 mb-3 uppercase tracking-wider">Cài đặt</h3>
+        <button 
+          onClick={onLogout}
+          className="w-full py-4 bg-slate-50 text-red-500 hover:bg-red-50 font-bold rounded-2xl active:scale-95 transition-all flex items-center justify-center gap-2 border border-slate-100 hover:border-red-100"
+        >
+          <LogOut size={20} /> Đăng xuất / Tải lại trang
+        </button>
+        <p className="text-xs text-slate-400 text-center mt-3 font-medium px-4">
+          Nếu đăng xuất tài khoản ẩn danh, phiên làm việc sẽ thiết lập lại ID mới.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// --- Component: Chế độ Học (Flashcard ngẫu nhiên + AI Mnemonic) ---
+function StudyMode({ words, onAddSample }) {
+  const [studyList, setStudyList] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+  const [speechSupported, setSpeechSupported] = useState(true);
+
+  const [mnemonic, setMnemonic] = useState(null);
+  const [isGeneratingMnemonic, setIsGeneratingMnemonic] = useState(false);
+
+  const recognitionRef = useRef(null);
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    if (words && words.length > 0) {
+      if (studyList.length === 0 || studyList.length !== words.length) {
+        setStudyList([...words].sort(() => 0.5 - Math.random()));
+        setCurrentIndex(0);
+      }
+    } else {
+      setStudyList([]);
+    }
+  }, [words]);
+
+  const currentWord = studyList[currentIndex];
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.pause();
+    setFeedback(null); setIsSpeaking(false); setMnemonic(null);
+  }, [currentIndex]);
+
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.lang = 'en-US';
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.maxAlternatives = 1;
+
+      recognitionRef.current.onresult = (event) => {
+        checkPronunciation(event.results[0][0].transcript);
+        setIsRecording(false);
+      };
+      recognitionRef.current.onerror = (e) => {
+        if (e.error !== 'aborted') setFeedback({ type: 'error', text: `Lỗi Micro (${e.error})` });
+        setIsRecording(false);
+      };
+      recognitionRef.current.onend = () => setIsRecording(false);
+    } else setSpeechSupported(false);
+  }, [currentIndex]);
+
+  const generateMnemonic = async () => {
+    if (!currentWord) return;
+    setIsGeneratingMnemonic(true); setMnemonic(null);
+    const apiKey = "";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    const prompt = `Bạn là chuyên gia ngôn ngữ. Tạo một mẹo ghi nhớ cực kỳ ngắn gọn, vui nhộn bằng tiếng Việt cho từ tiếng Anh sau:
+    - Từ: "${currentWord.word}"
+    - Nghĩa: ${currentWord.meaning}
+    Chỉ trả lời nội dung mẹo. Không dài dòng.`;
+
+    let delay = 1000;
+    for (let i = 0; i < 5; i++) {
+      try {
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+        if (!res.ok) throw new Error('API Error');
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) { setMnemonic(text.trim()); setIsGeneratingMnemonic(false); return; }
+        throw new Error('Invalid response');
+      } catch (error) {
+        if (i === 4) { setMnemonic("❌ AI đang bận. Thử lại sau!"); setIsGeneratingMnemonic(false); }
+        else { await new Promise(r => setTimeout(r, delay)); delay *= 2; }
+      }
+    }
+  };
+
+  const playAudio = async () => {
+    if (isSpeaking || !currentWord) return;
+    setIsSpeaking(true);
+    try {
+      const apiKey = ""; 
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: currentWord.word }] }], generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } } }, model: "gemini-2.5-flash-preview-tts" })
+      });
+      if (!res.ok) throw new Error("API Error");
+      const data = await res.json();
+      const inlineData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+      if (inlineData) {
+        let sampleRate = 24000;
+        const rateMatch = (inlineData.mimeType || "").match(/rate=(\d+)/);
+        if (rateMatch) sampleRate = parseInt(rateMatch[1], 10);
+        const pcmBuffer = base64ToArrayBuffer(inlineData.data);
+        const audio = new Audio(URL.createObjectURL(pcmToWav(pcmBuffer, sampleRate)));
+        audioRef.current = audio;
+        audio.onended = () => setIsSpeaking(false);
+        audio.onerror = () => setIsSpeaking(false);
+        await audio.play();
+      } else throw new Error("No audio data");
+    } catch (err) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(currentWord.word);
+        utterance.lang = 'en-US'; utterance.rate = 0.85;
+        utterance.onend = () => setIsSpeaking(false);
+        window.speechSynthesis.speak(utterance);
+      } else { setIsSpeaking(false); alert("Thiết bị không hỗ trợ âm thanh."); }
+    }
+  };
+
+  const startRecording = (e) => {
+    e.preventDefault(); 
+    if (!speechSupported) return;
+    setFeedback(null); setIsRecording(true);
+    if (audioRef.current) audioRef.current.pause();
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    try { recognitionRef.current.start(); } catch (e) { setIsRecording(false); }
+  };
+
+  const stopRecording = (e) => {
+    e.preventDefault();
+    if (recognitionRef.current && isRecording) recognitionRef.current.stop();
+  };
+
+  const checkPronunciation = (transcript) => {
+    if (!currentWord) return;
+    const cleanTranscript = transcript.toLowerCase().replace(/[.,!?;:]/g, '').trim();
+    const targetWord = currentWord.word.toLowerCase().replace(/[.,!?;:]/g, '').trim();
+    if (cleanTranscript === targetWord || cleanTranscript.includes(targetWord)) {
+      setFeedback({ type: 'success', text: `Đúng rồi: "${transcript}" 🎉` });
+    } else {
+      setFeedback({ type: 'error', text: `Bạn vừa đọc: "${transcript}"` });
+    }
+  };
+
+  if (!studyList || studyList.length === 0) return (
+    <div className="h-full flex flex-col items-center justify-center text-center p-8 animate-in zoom-in-95">
+      <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center mb-6 text-indigo-300">
+        <Cloud size={48} />
+      </div>
+      <h2 className="text-xl font-bold text-slate-800 mb-2">Kho từ vựng trống</h2>
+      <p className="text-slate-500 mb-8 font-medium">Dữ liệu của bạn được lưu an toàn trên Đám mây. Hãy bắt đầu thêm từ vựng mới!</p>
+      <button onClick={onAddSample} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl active:scale-95 transition-transform shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
+        <Wand2 size={20} /> Tải bộ từ mẫu (Đầu tư)
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="h-full flex flex-col space-y-4">
+      {/* Top Controls */}
+      <div className="flex justify-between items-center px-1 shrink-0">
+        <span className="text-sm font-bold text-slate-400 bg-slate-200/50 px-3 py-1 rounded-full">
+          {currentIndex + 1} / {studyList.length}
+        </span>
+        <button onClick={() => { setStudyList([...words].sort(() => 0.5 - Math.random())); setCurrentIndex(0); }} className="text-xs font-bold text-indigo-600 bg-indigo-100 px-3 py-1.5 rounded-full flex items-center gap-1 active:scale-95">
+          <RotateCcw size={14} /> Trộn thẻ
+        </button>
+      </div>
+
+      <div className="flex-1 bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden relative flex flex-col min-h-0">
+        <div className="h-1 bg-slate-100 w-full shrink-0">
+          <div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${((currentIndex + 1) / studyList.length) * 100}%` }}/>
+        </div>
+        
+        <div className="p-4 md:p-6 flex-1 flex flex-col min-h-0">
+          
+          <div className="shrink-0 flex flex-col items-center justify-center text-center mt-2 mb-4">
+            <h2 className="text-4xl font-extrabold text-slate-800 mb-2 break-all">{currentWord.word}</h2>
+            <div className="flex items-center gap-3">
+              <span className="text-lg text-indigo-500 font-medium font-mono bg-indigo-50 px-3 py-1 rounded-xl">{currentWord.phonetic}</span>
+              <button onClick={playAudio} disabled={isSpeaking} className={`p-2.5 rounded-full transition-all active:scale-90 ${isSpeaking ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-600 shadow-sm'}`}>
+                {isSpeaking ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 w-full bg-slate-50/50 rounded-2xl p-4 text-left border border-slate-100/50 overflow-y-auto mb-4">
+            <div className="mb-3">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Nghĩa</span>
+              <p className="text-lg font-medium text-slate-700">{currentWord.meaning}</p>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Ví dụ</span>
+              <p className="text-sm text-slate-600 italic">"{currentWord.example}"</p>
+            </div>
+
+            <div className="mt-4">
+              {!mnemonic && !isGeneratingMnemonic && (
+                <button onClick={generateMnemonic} className="w-full py-2.5 bg-gradient-to-r from-amber-100 to-orange-100 hover:from-amber-200 hover:to-orange-200 text-amber-700 font-bold rounded-xl text-[11px] uppercase tracking-wider flex items-center justify-center gap-1.5 active:scale-95 transition-all border border-amber-200 shadow-sm">
+                  ✨ Tạo mẹo ghi nhớ bằng AI
+                </button>
+              )}
+              {isGeneratingMnemonic && (
+                <div className="w-full py-2.5 bg-amber-50 text-amber-600 font-bold rounded-xl text-[11px] uppercase tracking-wide flex items-center justify-center gap-2 border border-amber-100">
+                  <Loader2 size={16} className="animate-spin" /> AI đang suy nghĩ...
+                </div>
+              )}
+              {mnemonic && (
+                <div className="bg-amber-50 rounded-xl p-4 text-left border border-amber-200 relative animate-in fade-in slide-in-from-top-2">
+                  <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest block mb-1 flex items-center gap-1">✨ Mẹo AI</span>
+                  <p className="text-[13px] text-amber-900 font-medium leading-relaxed" dangerouslySetInnerHTML={{ __html: mnemonic.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="shrink-0 w-full flex flex-col gap-3">
+            <button 
+              onMouseDown={startRecording} onMouseUp={stopRecording} onMouseLeave={stopRecording} 
+              onTouchStart={startRecording} onTouchEnd={stopRecording} onTouchCancel={stopRecording}
+              disabled={!speechSupported} 
+              className={`w-full py-3.5 rounded-2xl flex items-center justify-center gap-2 font-bold transition-all shadow-lg active:scale-95 select-none touch-none
+                ${isRecording ? 'bg-red-500 text-white shadow-red-500/30' : 'bg-indigo-600 text-white shadow-indigo-600/30'}
+                ${!speechSupported ? 'opacity-50' : ''}
+              `}
+            >
+              <Mic size={22} className={isRecording ? 'animate-bounce' : ''} /> 
+              {isRecording ? 'Đang nghe...' : 'Giữ để đọc kiểm tra'}
+            </button>
+
+            {feedback && (
+              <div className={`p-3 rounded-xl flex items-center gap-2 text-left text-sm animate-in zoom-in-95 ${feedback.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                {feedback.type === 'success' ? <CheckCircle2 size={18} className="shrink-0" /> : <XCircle size={18} className="shrink-0" />}
+                <p className="font-semibold">{feedback.text}</p>
+              </div>
+            )}
+          </div>
+
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 shrink-0">
+        <button onClick={() => setCurrentIndex(currentIndex - 1)} disabled={currentIndex === 0} className="flex-1 py-3.5 bg-white shadow-sm border border-slate-200 rounded-2xl font-bold text-slate-600 active:scale-95 active:bg-slate-50 disabled:opacity-50 transition-transform flex items-center justify-center gap-1">
+          <ChevronLeft size={20} /> Trước
+        </button>
+        <button onClick={() => setCurrentIndex(currentIndex + 1)} disabled={currentIndex === studyList.length - 1} className="flex-1 py-3.5 bg-white shadow-sm border border-slate-200 rounded-2xl font-bold text-slate-600 active:scale-95 active:bg-slate-50 disabled:opacity-50 transition-transform flex items-center justify-center gap-1">
+          Tiếp <ChevronRight size={20} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// --- Component: Chế độ Kiểm tra & Truyện AI ---
+function QuizMode({ words }) {
+  const [quizState, setQuizState] = useState('start');
+  const [questions, setQuestions] = useState([]);
+  const [currentQIndex, setCurrentQIndex] = useState(0);
+  const [score, setScore] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState(null);
+
+  const [storyContent, setStoryContent] = useState(null);
+  const [isGeneratingStory, setIsGeneratingStory] = useState(false);
+
+  const startQuiz = (numQuestions) => {
+    if (words.length < 4) { alert("Cần tối thiểu 4 từ vựng!"); return; }
+    const shuffledWords = [...words].sort(() => 0.5 - Math.random());
+    const selectedWords = shuffledWords.slice(0, Math.min(numQuestions, words.length));
+
+    const generatedQuestions = selectedWords.map(targetWord => {
+      const otherWords = words.filter(w => w.id !== targetWord.id);
+      const shuffledOthers = [...otherWords].sort(() => 0.5 - Math.random());
+      const wrongOptions = shuffledOthers.slice(0, 3).map(w => w.meaning);
+      return { ...targetWord, options: [...wrongOptions, targetWord.meaning].sort(() => 0.5 - Math.random()), correctAnswer: targetWord.meaning };
+    });
+
+    setQuestions(generatedQuestions); setScore(0); setCurrentQIndex(0);
+    setSelectedAnswer(null); setQuizState('playing');
+  };
+
+  const handleAnswer = (option) => {
+    if (selectedAnswer) return;
+    setSelectedAnswer(option);
+    if (option === questions[currentQIndex].correctAnswer) setScore(score + 1);
+  };
+
+  const generateStory = async () => {
+    if (words.length < 5) { alert("Cần ít nhất 5 từ để AI viết truyện!"); return; }
+    setQuizState('story');
+    setIsGeneratingStory(true); setStoryContent(null);
+
+    const shuffledWords = [...words].sort(() => 0.5 - Math.random());
+    const selectedWords = shuffledWords.slice(0, 8);
+    const wordListStr = selectedWords.map(w => w.word).join(', ');
+
+    const apiKey = "";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    const prompt = `Viết một đoạn văn cực kỳ ngắn (tối đa 150 chữ) bằng tiếng Việt có chêm chính xác các từ tiếng Anh sau: ${wordListStr}. 
+    Mục đích giúp đoán nghĩa từ qua ngữ cảnh. Hãy in đậm chính xác các từ tiếng Anh đó (ví dụ: **Invest**).
+    Lưu ý: Bạn CHỈ ĐƯỢC PHÉP bôi đậm bằng dấu ** ngay sát từ tiếng Anh, không bôi đậm các từ tiếng Việt khác.`;
+
+    let delay = 1000;
+    for (let i = 0; i < 5; i++) {
+      try {
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+        if (!res.ok) throw new Error("API Error");
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) { setStoryContent(text); setIsGeneratingStory(false); return; }
+        throw new Error("Invalid format");
+      } catch (e) {
+        if (i === 4) { setStoryContent("❌ Không thể sinh truyện lúc này. Hãy thử lại sau!"); setIsGeneratingStory(false); } 
+        else { await new Promise(r => setTimeout(r, delay)); delay *= 2; }
+      }
+    }
+  };
+
+  // Hàm xử lý văn bản AI sinh ra để nhúng React Component TooltipWord vào
+  const parseStoryContent = () => {
+    if (!storyContent) return null;
+    
+    // Tách chuỗi theo format **từ** hoặc ký tự xuống dòng \n
+    const parts = storyContent.split(/(\*\*.*?\*\*|\n)/g);
+    
+    return parts.map((part, index) => {
+      if (part === '\n') return <br key={index} />;
+      
+      if (part.startsWith('**') && part.endsWith('**')) {
+        const cleanWord = part.slice(2, -2).trim();
+        // Tìm nghĩa của từ trong danh sách (Tìm kiếm linh hoạt chữ hoa/thường)
+        const matchedWord = words.find(w => 
+          cleanWord.toLowerCase().includes(w.word.toLowerCase()) || 
+          w.word.toLowerCase().includes(cleanWord.toLowerCase())
+        );
+        const meaning = matchedWord ? matchedWord.meaning : 'Đang tải nghĩa...';
+        
+        return <TooltipWord key={index} word={cleanWord} meaning={meaning} />;
+      }
+      
+      return <span key={index}>{part}</span>;
+    });
+  };
+
+  if (quizState === 'start') {
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-4">
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 text-center w-full max-w-sm">
+          <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-6 text-indigo-500">
+            <BrainCircuit size={40} />
+          </div>
+          <h2 className="text-2xl font-black text-slate-800 mb-2">Mini Test & Chuyện</h2>
+          <p className="text-slate-500 text-sm mb-8 font-medium">Ôn tập nhanh hoặc đọc truyện AI.</p>
+          
+          <div className="flex flex-col gap-3">
+            <button onClick={() => startQuiz(5)} className="w-full py-3.5 bg-indigo-600 text-white font-bold rounded-2xl active:scale-95 transition-transform shadow-lg shadow-indigo-600/30">
+              Test nhanh (5 câu)
+            </button>
+            <button onClick={() => startQuiz(10)} className="w-full py-3.5 bg-white border-2 border-indigo-100 text-indigo-600 font-bold rounded-2xl active:scale-95 transition-transform">
+              Thử thách (10 câu)
+            </button>
+            <div className="h-px bg-slate-100 my-2"></div>
+            <button onClick={generateStory} className="w-full py-3.5 bg-gradient-to-r from-pink-500 to-rose-500 text-white font-bold rounded-2xl active:scale-95 transition-transform shadow-lg shadow-pink-500/30 flex justify-center items-center gap-2">
+              ✨ Đọc truyện chêm AI
+            </button>
+          </div>
+          {words.length < 5 && <p className="text-red-500 text-xs mt-4 font-bold bg-red-50 p-2 rounded-lg">Cần lưu tối thiểu 5 từ để kích hoạt AI.</p>}
+        </div>
+      </div>
+    );
+  }
+
+  if (quizState === 'story') {
+    return (
+      <div className="h-full flex flex-col p-2 animate-in zoom-in-95">
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 flex-1 flex flex-col overflow-hidden">
+          <h2 className="text-xl font-black text-slate-800 mb-2 flex items-center gap-2 shrink-0">
+            <Wand2 className="text-pink-500"/> Chuyện kể AI
+          </h2>
+          <p className="text-xs text-slate-400 font-medium mb-4 shrink-0">
+            * Mẹo: Chạm giữ hoặc đưa chuột vào các từ in đỏ để xem nghĩa tiếng Việt.
+          </p>
+          
+          <div className="flex-1 overflow-y-auto bg-slate-50 rounded-2xl p-5 border border-slate-100 shadow-inner text-slate-700 leading-relaxed text-[16px] font-medium">
+            {isGeneratingStory ? (
+              <div className="h-full flex flex-col items-center justify-center text-pink-500 gap-3">
+                <Loader2 size={32} className="animate-spin" />
+                <p className="text-sm font-bold text-slate-500">AI đang nhào nặn câu chuyện...</p>
+              </div>
+            ) : (
+              <div>{parseStoryContent()}</div>
+            )}
+          </div>
+
+          <button onClick={() => setQuizState('start')} className="mt-5 w-full shrink-0 py-3.5 bg-slate-100 text-slate-700 hover:bg-slate-200 font-bold rounded-2xl active:scale-95 transition-transform flex items-center justify-center gap-2">
+            <RotateCcw size={18} /> Quay lại
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (quizState === 'playing' && questions.length > 0) {
+    const q = questions[currentQIndex];
+    return (
+      <div className="h-full flex flex-col">
+        <div className="flex justify-between items-center mb-3 text-sm font-bold text-slate-500">
+          <span>Câu {currentQIndex + 1}/{questions.length}</span>
+          <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full">Điểm: {score}</span>
+        </div>
+        <div className="h-1.5 bg-slate-200 rounded-full mb-6 overflow-hidden shrink-0">
+          <div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${((currentQIndex + 1) / questions.length) * 100}%` }}></div>
+        </div>
+
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 text-center mb-6 shrink-0">
+          <p className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest">Nghĩa của từ này là gì?</p>
+          <h2 className="text-4xl font-black text-slate-800 mb-3">{q.word}</h2>
+          <span className="text-sm text-indigo-500 font-mono bg-indigo-50 px-3 py-1 rounded-lg">{q.phonetic}</span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="grid grid-cols-1 gap-3 pb-2">
+            {q.options.map((opt, idx) => {
+              let btnClass = "bg-white border-2 border-slate-100 text-slate-700";
+              let icon = null;
+              if (selectedAnswer) {
+                if (opt === q.correctAnswer) {
+                  btnClass = "bg-green-50 border-2 border-green-500 text-green-800 shadow-sm";
+                  icon = <CheckCircle2 size={20} className="text-green-600" />;
+                } else if (opt === selectedAnswer && opt !== q.correctAnswer) {
+                  btnClass = "bg-red-50 border-2 border-red-500 text-red-800 shadow-sm";
+                  icon = <XCircle size={20} className="text-red-600" />;
+                } else btnClass = "bg-white border-2 border-slate-50 text-slate-300 opacity-50";
+              }
+
+              return (
+                <button key={idx} onClick={() => handleAnswer(opt)} disabled={!!selectedAnswer} className={`w-full p-4 rounded-2xl text-left font-bold text-[15px] transition-all flex items-center justify-between active:scale-[0.98] ${btnClass}`}>
+                  <span>{opt}</span>{icon}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {selectedAnswer && (
+          <div className="mt-4 pb-2 shrink-0">
+            <button onClick={() => { if (currentQIndex < questions.length - 1) { setCurrentQIndex(currentQIndex + 1); setSelectedAnswer(null); } else setQuizState('result'); }} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-indigo-600/30 active:scale-95 transition-transform flex justify-center items-center gap-2">
+              {currentQIndex < questions.length - 1 ? 'Câu tiếp theo' : 'Xem kết quả'} <ChevronRight size={20} />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const percentage = Math.round((score / questions.length) * 100);
+  return (
+    <div className="h-full flex flex-col items-center justify-center p-4 animate-in zoom-in-95">
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 text-center w-full max-w-sm">
+        <div className="w-24 h-24 bg-yellow-50 rounded-full flex items-center justify-center mx-auto mb-6 text-yellow-500">
+          <Trophy size={48} />
+        </div>
+        <h2 className="text-2xl font-black text-slate-800 mb-2">Hoàn Thành!</h2>
+        <p className="text-slate-500 text-sm mb-6 font-medium">{percentage >= 80 ? "Xuất sắc! Bạn nhớ rất tốt." : "Cố gắng ôn tập thêm nhé!"}</p>
+        
+        <div className="text-6xl font-black text-indigo-600 mb-8">
+          {score} <span className="text-2xl text-slate-300">/ {questions.length}</span>
+        </div>
+
+        <button onClick={() => setQuizState('start')} className="w-full py-4 bg-slate-100 text-slate-700 font-bold rounded-2xl active:scale-95 transition-transform flex items-center justify-center gap-2">
+          <RotateCcw size={20} /> Làm lại bài khác
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// --- Component: Quản lý từ vựng (Có Sync Cloud) ---
+function ManageMode({ words, onAdd, onDelete, onAddSample }) {
+  const [newWord, setNewWord] = useState({ word: '', phonetic: '', meaning: '', example: '' });
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
+
+  const generateWordInfo = async () => {
+    if (!newWord.word.trim()) { setErrorMsg("Vui lòng nhập từ tiếng Anh trước."); return; }
+    setErrorMsg(null); setIsGenerating(true);
+    const apiKey = "";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    const payload = {
+      contents: [{ parts: [{ text: `Cho IPA, nghĩa Tiếng Việt, và 1 ví dụ tiếng Anh cho từ: "${newWord.word}". Chỉ trả JSON: phonetic, meaning, example.` }] }],
+      generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { phonetic: { type: "STRING" }, meaning: { type: "STRING" }, example: { type: "STRING" } }, required: ["phonetic", "meaning", "example"] } }
+    };
+
+    let delay = 1000;
+    for (let i = 0; i < 5; i++) {
+      try {
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error('API Error');
+        const data = await res.json();
+        const info = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
+        if (info.meaning) {
+          setNewWord(p => ({ ...p, phonetic: info.phonetic || '', meaning: info.meaning || '', example: info.example || '' }));
+          setIsGenerating(false); return;
+        } throw new Error('Data format error');
+      } catch (err) {
+        if (i === 4) { setErrorMsg("Lỗi tạo tự động. Vui lòng thử lại"); setIsGenerating(false); } else { await new Promise(r => setTimeout(r, delay)); delay *= 2; }
+      }
+    }
+  };
+
+  const handleAddWord = (e) => {
+    e.preventDefault();
+    if (!newWord.word || !newWord.meaning) return setErrorMsg("Điền đủ Từ vựng và Nghĩa.");
+    onAdd({ word: newWord.word.trim(), phonetic: newWord.phonetic.trim(), meaning: newWord.meaning.trim(), example: newWord.example.trim() });
+    setNewWord({ word: '', phonetic: '', meaning: '', example: '' }); 
+    setErrorMsg(null);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 relative shrink-0">
+        <h2 className="text-lg font-black mb-4 flex items-center gap-2 text-indigo-700"><Plus size={20} /> Thêm từ mới</h2>
+        {errorMsg && <div className="mb-3 p-2.5 bg-red-50 text-red-600 rounded-xl flex items-center gap-2 text-xs font-bold"><AlertCircle size={16} />{errorMsg}</div>}
+        <form onSubmit={handleAddWord} className="space-y-3">
+          <div className="flex gap-2">
+            <input type="text" required placeholder="Từ tiếng Anh..." value={newWord.word} onChange={e => setNewWord({...newWord, word: e.target.value})} className="flex-1 bg-slate-50 px-4 py-3 rounded-2xl text-sm font-bold border-none outline-none focus:ring-2 focus:ring-indigo-500" />
+            <button type="button" onClick={generateWordInfo} disabled={isGenerating || !newWord.word} className="bg-indigo-100 text-indigo-700 px-4 rounded-2xl font-bold flex items-center justify-center min-w-[50px] active:scale-95 transition-transform">
+              {isGenerating ? <Loader2 className="animate-spin" size={20} /> : <Wand2 size={20} />}
+            </button>
+          </div>
+          <input type="text" required placeholder="Nghĩa Tiếng Việt..." value={newWord.meaning} onChange={e => setNewWord({...newWord, meaning: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-2xl text-sm border-none outline-none focus:ring-2 focus:ring-indigo-500 font-medium" />
+          <input type="text" placeholder="Phiên âm (Tùy chọn)" value={newWord.phonetic} onChange={e => setNewWord({...newWord, phonetic: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-2xl text-sm border-none outline-none focus:ring-2 focus:ring-indigo-500 font-medium" />
+          <textarea placeholder="Ví dụ..." value={newWord.example} onChange={e => setNewWord({...newWord, example: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-2xl text-sm border-none outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-20 font-medium"></textarea>
+          <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-2xl mt-2 active:scale-95 transition-transform shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
+             <Cloud size={18} /> Lưu lên Đám mây
+          </button>
+        </form>
+      </div>
+
+      <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex-1 flex flex-col min-h-[300px]">
+        <div className="flex items-center justify-between mb-4 shrink-0">
+           <h2 className="text-lg font-black flex items-center text-slate-800">
+             Từ của bạn <span className="ml-2 text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full">{words.length}</span>
+           </h2>
+        </div>
+
+        <div className="flex-1 overflow-y-auto min-h-0 pb-4">
+          {words.length === 0 ? (
+             <div className="text-center py-6">
+               <p className="text-slate-400 text-sm mb-4 font-medium">Danh sách trống.</p>
+               <button onClick={onAddSample} className="text-indigo-600 bg-indigo-50 px-4 py-2 rounded-xl text-sm font-bold active:scale-95 transition-transform flex items-center justify-center gap-2 mx-auto">
+                 <Wand2 size={16} /> Tải từ mẫu
+               </button>
+             </div>
+          ) : (
+            <div className="space-y-3">
+              {words.map((w) => (
+                <div key={w.id} className="p-4 bg-slate-50 rounded-2xl flex items-center justify-between gap-3">
+                  <div className="flex-1 overflow-hidden">
+                    <h3 className="font-bold text-slate-800 truncate">{w.word} <span className="text-xs text-indigo-500 font-mono ml-1">{w.phonetic}</span></h3>
+                    <p className="text-sm font-medium text-slate-600 truncate">{w.meaning}</p>
+                  </div>
+                  <button onClick={() => { if(window.confirm("Xóa từ này khỏi Đám mây?")) onDelete(w.id) }} className="p-2 text-slate-300 hover:text-red-500 active:bg-red-50 rounded-xl transition-colors shrink-0"><Trash2 size={20} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
