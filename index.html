@@ -20,9 +20,9 @@
         "react": "https://esm.sh/react@18.2.0",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
         "lucide-react": "https://esm.sh/lucide-react@0.292.0",
-        "firebase/app": "https://esm.sh/firebase@10.8.0/app",
-        "firebase/auth": "https://esm.sh/firebase@10.8.0/auth",
-        "firebase/firestore": "https://esm.sh/firebase@10.8.0/firestore"
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"
       }
     }
   </script>
@@ -37,7 +37,7 @@
 
     // --- Khởi tạo Firebase ---
     import { initializeApp } from 'firebase/app';
-    import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, signOut } from 'firebase/auth';
+    import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from 'firebase/auth';
     import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
 
     // 👇 DÁN ĐOẠN MÃ CONFIG FIREBASE CỦA MÀY VÀO TRONG DẤU NGOẶC NHỌN NÀY 👇
@@ -211,7 +211,7 @@
       }, []);
 
       useEffect(() => {
-        if (!user) { setLoading(false); return; }
+        if (!user) { return; }
         
         setLoading(true);
         // Khởi tạo Collection riêng cho user trong Firestore
@@ -260,7 +260,7 @@
       }, [user, handleAddWordToDB]);
 
       const handleLogout = async () => {
-        if (window.confirm("Đăng xuất sẽ xóa phiên đăng nhập hiện tại trên máy này. Tiếp tục?")) {
+        if (window.confirm("Đăng xuất sẽ tạo không gian lưu trữ mới tinh. Tiếp tục?")) {
           await signOut(auth);
           window.location.reload();
         }
@@ -278,7 +278,7 @@
                 <div className="flex items-center gap-1.5 text-[10px] font-bold bg-indigo-800/40 px-2.5 py-1.5 rounded-full backdrop-blur-sm">
                   {syncStatus === 'connecting' && <Loader2 size={14} className="animate-spin text-white" />}
                   {syncStatus === 'synced' && <><Cloud size={14} className="text-green-300" /> Đám mây</>}
-                  {syncStatus === 'error' && <><CloudOff size={14} className="text-red-300" /> Lỗi Sync</>}
+                  {syncStatus === 'error' && <><CloudOff size={14} className="text-red-300" /> Ngoại tuyến</>}
                 </div>
               </div>
             </header>
@@ -604,6 +604,7 @@
 
       const generateStory = async () => {
         if (words.length < 5) return alert("Cần ít nhất 5 từ!");
+        
         setQuizState('story'); setStoryState({ content: null, isGenerating: true });
         
         const wordStr = [...words].sort(() => 0.5 - Math.random()).slice(0, 8).map(w => w.word).join(', ');
@@ -814,14 +815,3 @@
                   ))}
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    const root = createRoot(document.getElementById('root'));
-    root.render(<App />);
-  </script>
-</body>
-</html>
