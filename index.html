@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>App Học Từ Vựng AI - Có Tài Khoản</title>
+  <title>App Học Từ Vựng AI - V4.0</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -33,7 +33,7 @@
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Volume2, Mic, Plus, List, BookOpen, ChevronRight, ChevronLeft, Trash2, CheckCircle2, XCircle, AlertCircle, Wand2, Loader2, BrainCircuit, Trophy, RotateCcw, Cloud, CloudOff, User, LogOut, ShieldCheck, Tag, Key, Lock, Mail } from 'lucide-react';
+    import { Volume2, Mic, Plus, List, BookOpen, ChevronRight, ChevronLeft, Trash2, CheckCircle2, XCircle, AlertCircle, Wand2, Loader2, BrainCircuit, Trophy, RotateCcw, Cloud, CloudOff, User, LogOut, ShieldCheck, Tag, GitCompare, Mail, Lock, Key } from 'lucide-react';
 
     // --- Khởi tạo Firebase ---
     import { initializeApp } from 'firebase/app';
@@ -54,6 +54,48 @@
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
+
+    // --- Dữ liệu mẫu ---
+    const sampleVocabulary = [
+      { word: 'Invest', partOfSpeech: 'v', phonetic: '/ɪnˈvɛst/', meaning: 'Đầu tư', example: 'I want to invest my money safely.' },
+      { word: 'Asset', partOfSpeech: 'n', phonetic: '/ˈæsɛt/', meaning: 'Tài sản', example: 'A house is a good asset.' },
+      { word: 'Pronunciation', partOfSpeech: 'n', phonetic: '/prəˌnʌnsiˈeɪʃən/', meaning: 'Cách phát âm', example: 'Your pronunciation is very clear.' },
+      { word: 'Stock market', partOfSpeech: '', phonetic: '/ˈstɒk ˌmɑːkɪt/', meaning: 'Thị trường chứng khoán', example: 'The stock market can be risky.' },
+      { word: 'Interest', partOfSpeech: 'n', phonetic: '/ˈɪntrɪst/', meaning: 'Lãi suất', example: 'This bank has good interest.' }
+    ];
+
+    // --- Utilities: Xử lý Âm thanh ---
+    const audioUtils = {
+      base64ToArrayBuffer: (base64) => {
+        const binaryString = window.atob(base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+        return bytes.buffer;
+      },
+      pcmToWav: (pcmData, sampleRate) => {
+        const numChannels = 1, bitsPerSample = 16;
+        const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+        const blockAlign = numChannels * (bitsPerSample / 8);
+        const dataSize = pcmData.byteLength;
+        const buffer = new ArrayBuffer(44 + dataSize);
+        const view = new DataView(buffer);
+
+        const writeString = (v, offset, str) => { for (let i = 0; i < str.length; i++) v.setUint8(offset + i, str.charCodeAt(i)); };
+
+        writeString(view, 0, 'RIFF'); view.setUint32(4, 36 + dataSize, true);
+        writeString(view, 8, 'WAVE'); writeString(view, 12, 'fmt ');
+        view.setUint32(16, 16, true); view.setUint16(20, 1, true); 
+        view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true);
+        view.setUint32(28, byteRate, true); view.setUint16(32, blockAlign, true);
+        view.setUint16(34, bitsPerSample, true); writeString(view, 36, 'data');
+        view.setUint32(40, dataSize, true);
+
+        const pcmView = new Uint8Array(pcmData);
+        for (let i = 0; i < pcmView.length; i++) view.setUint8(44 + i, pcmView[i]);
+
+        return new Blob([view], { type: 'audio/wav' });
+      }
+    };
 
     // --- Utilities: API Helpers ---
     const aiHelpers = {
@@ -82,6 +124,23 @@
         if (isJson) payload.generationConfig = { responseMimeType: "application/json" };
         const data = await aiHelpers.fetchWithRetry(url, payload);
         return data.candidates?.[0]?.content?.parts?.[0]?.text;
+      },
+      generateAudio: async (text) => {
+        const key = aiHelpers.getApiKey();
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${key}`;
+        const payload = {
+          contents: [{ parts: [{ text }] }],
+          generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } } },
+          model: "gemini-2.5-flash-preview-tts"
+        };
+        const data = await aiHelpers.fetchWithRetry(url, payload);
+        const inlineData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+        if (!inlineData) throw new Error("No audio data");
+        
+        const rateMatch = (inlineData.mimeType || "").match(/rate=(\d+)/);
+        const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
+        const pcmBuffer = audioUtils.base64ToArrayBuffer(inlineData.data);
+        return URL.createObjectURL(audioUtils.pcmToWav(pcmBuffer, sampleRate));
       }
     };
 
@@ -113,7 +172,7 @@
       );
     });
 
-    // --- Component: Màn hình Đăng nhập / Đăng ký ---
+    // --- Component: Màn hình Đăng nhập ---
     function AuthScreen() {
       const [isLogin, setIsLogin] = useState(true);
       const [email, setEmail] = useState('');
@@ -131,16 +190,10 @@
             await createUserWithEmailAndPassword(auth, email, password);
           }
         } catch (err) {
-          console.error(err);
-          if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-            setError('Sai email hoặc mật khẩu!');
-          } else if (err.code === 'auth/email-already-in-use') {
-            setError('Email này đã được đăng ký!');
-          } else if (err.code === 'auth/weak-password') {
-            setError('Mật khẩu phải có ít nhất 6 ký tự!');
-          } else {
-            setError('Có lỗi xảy ra, vui lòng thử lại.');
-          }
+          if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') setError('Sai email hoặc mật khẩu!');
+          else if (err.code === 'auth/email-already-in-use') setError('Email này đã được đăng ký!');
+          else if (err.code === 'auth/weak-password') setError('Mật khẩu phải có ít nhất 6 ký tự!');
+          else setError('Có lỗi xảy ra. Vui lòng thử lại.');
         } finally {
           setLoading(false);
         }
@@ -150,17 +203,11 @@
         <div className="h-[100dvh] w-full bg-slate-900 flex justify-center items-center p-4">
           <div className="w-full max-w-[400px] bg-white rounded-3xl shadow-2xl p-8 animate-in zoom-in-95">
             <div className="flex justify-center mb-6">
-              <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center text-white shadow-lg shadow-indigo-600/30 rotate-3">
-                <BookOpen size={40} className="-rotate-3" />
-              </div>
+              <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center text-white shadow-lg shadow-indigo-600/30 rotate-3"><BookOpen size={40} className="-rotate-3" /></div>
             </div>
             <h2 className="text-2xl font-black text-center text-slate-800 mb-2">VocabMaster AI</h2>
-            <p className="text-center text-slate-500 text-sm font-medium mb-8">
-              {isLogin ? 'Đăng nhập để đồng bộ dữ liệu' : 'Tạo tài khoản mới'}
-            </p>
-
+            <p className="text-center text-slate-500 text-sm font-medium mb-8">{isLogin ? 'Đăng nhập để đồng bộ dữ liệu' : 'Tạo tài khoản mới'}</p>
             {error && <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-xl text-xs font-bold flex items-center gap-2"><AlertCircle size={16} />{error}</div>}
-
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="relative">
                 <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none"><Mail size={18} className="text-slate-400" /></div>
@@ -170,17 +217,11 @@
                 <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none"><Lock size={18} className="text-slate-400" /></div>
                 <input type="password" required placeholder="Mật khẩu" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-slate-50 pl-11 pr-4 py-3.5 rounded-2xl text-sm font-bold border-none outline-none focus:ring-2 focus:ring-indigo-500" />
               </div>
-              
               <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl mt-4 active:scale-95 transition-transform flex justify-center items-center gap-2 shadow-lg shadow-indigo-600/30">
                 {loading ? <Loader2 size={20} className="animate-spin" /> : (isLogin ? 'Đăng Nhập' : 'Đăng Ký')}
               </button>
             </form>
-
-            <div className="mt-8 text-center">
-              <button onClick={() => { setIsLogin(!isLogin); setError(''); }} className="text-indigo-600 font-bold text-sm hover:underline">
-                {isLogin ? 'Chưa có tài khoản? Đăng ký ngay' : 'Đã có tài khoản? Đăng nhập'}
-              </button>
-            </div>
+            <div className="mt-8 text-center"><button onClick={() => { setIsLogin(!isLogin); setError(''); }} className="text-indigo-600 font-bold text-sm hover:underline">{isLogin ? 'Chưa có tài khoản? Đăng ký ngay' : 'Đã có tài khoản? Đăng nhập'}</button></div>
           </div>
         </div>
       );
@@ -201,16 +242,13 @@
         return () => { document.body.style.overflow = ''; document.body.style.overscrollBehaviorY = ''; };
       }, []);
 
-      // Lắng nghe trạng thái đăng nhập
       useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-          setUser(currentUser);
-          setAuthLoading(false);
+          setUser(currentUser); setAuthLoading(false);
         });
         return () => unsubscribe();
       }, []);
 
-      // Đồng bộ dữ liệu khi đã đăng nhập
       useEffect(() => {
         if (!user) return;
         setDataLoading(true);
@@ -219,8 +257,7 @@
         const unsubscribe = onSnapshot(q, (snapshot) => {
           const vocabList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           setWords(vocabList);
-          setDataLoading(false);
-          setSyncStatus('synced');
+          setDataLoading(false); setSyncStatus('synced');
         }, (error) => {
           console.error("Firestore error:", error);
           setSyncStatus('error'); setDataLoading(false);
@@ -241,15 +278,18 @@
         try { await deleteDoc(doc(db, 'users', user.uid, 'vocabulary', id)); } catch (e) { console.error(e); }
       }, [user]);
 
+      const addSampleData = useCallback(async () => {
+        if (!user) return;
+        setDataLoading(true);
+        for (const word of sampleVocabulary) await handleAddWordToDB(word);
+        setDataLoading(false);
+      }, [user, handleAddWordToDB]);
+
       const handleLogout = async () => {
-        if (window.confirm("Bạn có chắc chắn muốn đăng xuất?")) {
-          await signOut(auth);
-        }
+        if (window.confirm("Đăng xuất khỏi thiết bị này?")) await signOut(auth);
       };
 
       if (authLoading) return <div className="h-[100dvh] bg-slate-900 flex justify-center items-center"><Loader2 size={40} className="animate-spin text-indigo-500" /></div>;
-      
-      // Nếu chưa có User -> Hiện màn hình Đăng nhập
       if (!user) return <AuthScreen />;
 
       return (
@@ -271,7 +311,7 @@
                 <div className="h-full flex flex-col items-center justify-center text-indigo-500 gap-3"><Loader2 size={40} className="animate-spin" /><p className="font-bold text-slate-500 animate-pulse">Đang tải dữ liệu...</p></div>
               ) : (
                 <div className="p-4 h-full">
-                  {activeTab === 'study' && <StudyMode words={words} />}
+                  {activeTab === 'study' && <StudyMode words={words} onAddSample={addSampleData} />}
                   {activeTab === 'quiz' && <QuizMode words={words} />}
                   {activeTab === 'manage' && <ManageMode words={words} onAdd={handleAddWordToDB} onDelete={handleDeleteFromDB} />}
                   {activeTab === 'profile' && <ProfileMode user={user} wordsCount={words.length} onLogout={handleLogout} />}
@@ -315,24 +355,14 @@
       return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
-            <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white shadow-lg shadow-indigo-200 mb-4">
-              <User size={32} />
-            </div>
+            <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white shadow-lg shadow-indigo-200 mb-4"><User size={32} /></div>
             <h2 className="text-lg font-black text-slate-800 mb-1 truncate w-full px-4">{user.email}</h2>
-            <div className="mt-2 flex items-center gap-2 text-[11px] text-green-600 font-bold bg-green-50 px-3 py-1.5 rounded-xl uppercase tracking-wider">
-              <ShieldCheck size={14} /> Tài khoản Đồng bộ
-            </div>
+            <div className="mt-2 flex items-center gap-2 text-[11px] text-green-600 font-bold bg-green-50 px-3 py-1.5 rounded-xl uppercase tracking-wider"><ShieldCheck size={14} /> Tài khoản Đồng bộ</div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
-              <span className="text-4xl font-black text-indigo-600 mb-1">{wordsCount}</span>
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Từ vựng</span>
-            </div>
-            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
-              <span className="text-4xl font-black text-pink-500 mb-1"><Cloud size={32} className="inline"/></span>
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Firebase</span>
-            </div>
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center text-center"><span className="text-4xl font-black text-indigo-600 mb-1">{wordsCount}</span><span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Từ vựng</span></div>
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center text-center"><span className="text-4xl font-black text-pink-500 mb-1"><Cloud size={32} className="inline"/></span><span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Firebase</span></div>
           </div>
 
           <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
@@ -341,30 +371,29 @@
             <div className="flex flex-col gap-3">
               <input type="password" placeholder="Nhập API Key vào đây..." value={apiKeyInput} onChange={(e) => { setApiKeyInput(e.target.value); setIsSaved(false); }} className="w-full bg-slate-50 px-4 py-3 rounded-2xl text-sm border-none outline-none focus:ring-2 focus:ring-indigo-500 font-medium" />
               <div className="flex gap-2">
-                <button onClick={saveKey} className={`flex-1 text-white font-bold py-3 rounded-2xl active:scale-95 transition-all text-sm shadow-md ${isSaved ? 'bg-green-500 shadow-green-500/30' : 'bg-indigo-600 shadow-indigo-600/30'}`}>
-                  {isSaved ? '✅ Đã lưu Key' : 'Lưu Key'}
-                </button>
+                <button onClick={saveKey} className={`flex-1 text-white font-bold py-3 rounded-2xl active:scale-95 transition-all text-sm shadow-md ${isSaved ? 'bg-green-500 shadow-green-500/30' : 'bg-indigo-600 shadow-indigo-600/30'}`}>{isSaved ? '✅ Đã lưu Key' : 'Lưu Key'}</button>
                 {isSaved && <button onClick={clearKey} className="px-5 bg-red-50 hover:bg-red-100 text-red-600 font-bold py-3 rounded-2xl active:scale-95 transition-all text-sm">Xóa</button>}
               </div>
             </div>
           </div>
 
           <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
-            <button onClick={onLogout} className="w-full py-4 bg-slate-50 text-red-500 hover:bg-red-50 font-bold rounded-2xl active:scale-95 transition-all flex items-center justify-center gap-2 border border-slate-100">
-              <LogOut size={20} /> Đăng xuất
-            </button>
+            <button onClick={onLogout} className="w-full py-4 bg-slate-50 text-red-500 hover:bg-red-50 font-bold rounded-2xl active:scale-95 transition-all flex items-center justify-center gap-2 border border-slate-100"><LogOut size={20} /> Đăng xuất</button>
           </div>
         </div>
       );
     });
 
     // --- Component: Chế độ Học ---
-    function StudyMode({ words }) {
+    function StudyMode({ words, onAddSample }) {
       const [studyList, setStudyList] = useState([]);
       const [currentIndex, setCurrentIndex] = useState(0);
       const [micState, setMicState] = useState({ isRecording: false, supported: true, feedback: null });
       const [audioState, setAudioState] = useState({ isSpeaking: false, error: null });
       const [aiState, setAiState] = useState({ mnemonic: null, isGenerating: false });
+      
+      const [extendedInfo, setExtendedInfo] = useState(null);
+      const [isGeneratingExtended, setIsGeneratingExtended] = useState(false);
 
       const recognitionRef = useRef(null);
       const audioRef = useRef(null);
@@ -385,6 +414,7 @@
         setMicState(p => ({ ...p, feedback: null, isRecording: false }));
         setAudioState({ isSpeaking: false, error: null });
         setAiState({ mnemonic: null, isGenerating: false });
+        setExtendedInfo(null); setIsGeneratingExtended(false);
       }, [currentIndex]);
 
       useEffect(() => {
@@ -405,19 +435,25 @@
         return () => { if (recognitionRef.current) recognitionRef.current.abort(); };
       }, [currentWord]);
 
-      const playAudio = () => {
+      const playAudio = async () => {
         if (audioState.isSpeaking || !currentWord) return;
-        setIsSpeaking(true);
-        if ('speechSynthesis' in window) {
-          window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(currentWord.word);
-          utterance.lang = 'en-US'; utterance.rate = 0.85;
-          utterance.onend = () => setAudioState({ isSpeaking: false, error: null });
-          window.speechSynthesis.speak(utterance);
-        } else { alert("Thiết bị không hỗ trợ."); }
+        setAudioState({ isSpeaking: true, error: null });
+        try {
+          const audioUrl = await aiHelpers.generateAudio(currentWord.word);
+          const audio = new Audio(audioUrl);
+          audioRef.current = audio;
+          audio.onended = () => setAudioState({ isSpeaking: false, error: null });
+          audio.onerror = () => setAudioState({ isSpeaking: false, error: true });
+          await audio.play();
+        } catch (err) {
+          if ('speechSynthesis' in window) {
+            const u = new SpeechSynthesisUtterance(currentWord.word);
+            u.lang = 'en-US'; u.rate = 0.85;
+            u.onend = () => setAudioState({ isSpeaking: false, error: null });
+            window.speechSynthesis.speak(u);
+          } else { setAudioState({ isSpeaking: false, error: true }); }
+        }
       };
-
-      const setIsSpeaking = (state) => setAudioState({ isSpeaking: state, error: null });
 
       const generateMnemonic = async () => {
         if (!currentWord) return;
@@ -433,9 +469,24 @@
         }
       };
 
+      const fetchExtendedInfo = async () => {
+        if (!currentWord) return;
+        setIsGeneratingExtended(true); setExtendedInfo(null);
+        try {
+          const prompt = `Tìm tối đa 3 từ đồng nghĩa và 3 từ trái nghĩa tiếng Anh phổ biến cho từ "${currentWord.word}" (nghĩa: ${currentWord.meaning}). Cung cấp kèm nghĩa tiếng Việt ngắn gọn trong ngoặc đơn. Trả về ĐÚNG định dạng JSON sau: {"synonyms": ["từ 1 (nghĩa)", "từ 2 (nghĩa)"], "antonyms": ["từ 1 (nghĩa)", "từ 2 (nghĩa)"]}`;
+          const text = await aiHelpers.generateText(prompt, true);
+          const data = JSON.parse(text || "{}");
+          setExtendedInfo({ synonyms: data.synonyms || [], antonyms: data.antonyms || [] });
+        } catch (e) {
+          if(e.message === "NO_API_KEY") setExtendedInfo({ error: "❌ Vui lòng nhập API Key ở tab Tài khoản." });
+          else setExtendedInfo({ error: "❌ Không thể lấy dữ liệu lúc này. Vui lòng thử lại sau!" });
+        } finally { setIsGeneratingExtended(false); }
+      };
+
       const startRecording = (e) => {
         e.preventDefault(); if (!micState.supported) return;
         setMicState(p => ({ ...p, isRecording: true, feedback: null }));
+        if (audioRef.current) audioRef.current.pause();
         if ('speechSynthesis' in window) window.speechSynthesis.cancel();
         try { recognitionRef.current.start(); } catch (e) {}
       };
@@ -445,7 +496,10 @@
         <div className="h-full flex flex-col items-center justify-center text-center p-8 animate-in zoom-in-95">
           <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center mb-6 text-indigo-300"><Cloud size={48} /></div>
           <h2 className="text-xl font-bold text-slate-800 mb-2">Kho từ vựng trống</h2>
-          <p className="text-slate-500 mb-8 font-medium">Chưa có từ nào trong tài khoản. Hãy sang tab Quản lý để thêm nhé!</p>
+          <p className="text-slate-500 mb-8 font-medium">Lưu trữ an toàn trên Đám mây. Thêm từ mới ngay!</p>
+          <button onClick={onAddSample} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30">
+            <Wand2 size={20} /> Tải bộ từ mẫu
+          </button>
         </div>
       );
 
@@ -459,10 +513,14 @@
           <div className="flex-1 bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden relative flex flex-col min-h-0">
             <div className="h-1 bg-slate-100 w-full shrink-0"><div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${((currentIndex + 1) / studyList.length) * 100}%` }}/></div>
             <div className="p-4 md:p-6 flex-1 flex flex-col min-h-0">
-              <div className="shrink-0 flex flex-col items-center justify-center text-center mt-2 mb-4">
+              
+              <div className="shrink-0 flex flex-col items-center justify-center text-center mt-2 mb-4 relative">
                 <h2 className="text-4xl font-extrabold text-slate-800 mb-2 break-all">{currentWord.word}</h2>
                 <div className="flex items-center gap-3">
-                  <span className="text-lg text-indigo-500 font-medium font-mono bg-indigo-50 px-3 py-1 rounded-xl">{currentWord.phonetic}</span>
+                  <span className="text-lg text-indigo-500 font-medium font-mono bg-indigo-50 px-3 py-1 rounded-xl">
+                    {currentWord.partOfSpeech && <span className="text-indigo-400 italic mr-1.5 font-serif">({currentWord.partOfSpeech})</span>}
+                    {currentWord.phonetic}
+                  </span>
                   <button onClick={playAudio} disabled={audioState.isSpeaking} className={`p-2.5 rounded-full transition-all active:scale-90 ${audioState.isSpeaking ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-600 shadow-sm'}`}>
                     {audioState.isSpeaking ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
                   </button>
@@ -475,13 +533,43 @@
                   <p className="text-lg font-medium text-slate-700">{currentWord.meaning} {currentWord.context && <span className="ml-2 text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-md align-middle"><Tag size={10} className="inline mr-1"/>{currentWord.context}</span>}</p>
                 </div>
                 <div><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Ví dụ</span><p className="text-sm text-slate-600 italic">"{currentWord.example}"</p></div>
-                <div className="mt-4">
+
+                {/* Các Nút Chức năng AI */}
+                <div className="mt-4 flex flex-col gap-2">
                   {!aiState.mnemonic && !aiState.isGenerating && (
-                    <button onClick={generateMnemonic} className="w-full py-2.5 bg-gradient-to-r from-amber-100 to-orange-100 text-amber-700 font-bold rounded-xl text-[11px] uppercase flex justify-center gap-1.5 active:scale-95 shadow-sm">✨ Tạo mẹo ghi nhớ</button>
+                    <button onClick={generateMnemonic} className="w-full py-2.5 bg-gradient-to-r from-amber-100 to-orange-100 hover:from-amber-200 text-amber-700 font-bold rounded-xl text-[11px] uppercase tracking-wider flex justify-center items-center gap-1.5 active:scale-95 shadow-sm transition-all">✨ Tạo mẹo ghi nhớ</button>
                   )}
-                  {aiState.isGenerating && <div className="w-full py-2.5 bg-amber-50 text-amber-600 font-bold rounded-xl text-[11px] uppercase flex justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Suy nghĩ...</div>}
+                  {aiState.isGenerating && <div className="w-full py-2.5 bg-amber-50 text-amber-600 font-bold rounded-xl text-[11px] uppercase flex justify-center gap-2"><Loader2 size={16} className="animate-spin" /> AI đang suy nghĩ...</div>}
                   {aiState.mnemonic && (
                     <div className="bg-amber-50 rounded-xl p-4 border border-amber-200 animate-in fade-in"><span className="text-[10px] font-black text-amber-500 uppercase flex gap-1 mb-1">✨ Mẹo AI</span><p className="text-[13px] text-amber-900 font-medium" dangerouslySetInnerHTML={{ __html: aiState.mnemonic.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p></div>
+                  )}
+
+                  {!extendedInfo && !isGeneratingExtended && (
+                    <button onClick={fetchExtendedInfo} className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-[11px] uppercase tracking-wider flex justify-center items-center gap-1.5 active:scale-95 shadow-sm transition-all"><GitCompare size={14} /> Khám phá Đồng / Trái nghĩa</button>
+                  )}
+                  {isGeneratingExtended && <div className="w-full py-2.5 bg-slate-100 text-slate-500 font-bold rounded-xl text-[11px] uppercase flex justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Đang tra cứu...</div>}
+                  {extendedInfo && (
+                    <div className="bg-white rounded-xl p-4 border border-slate-200 animate-in fade-in shadow-sm mt-1">
+                      {extendedInfo.error ? (
+                        <p className="text-red-500 text-xs font-bold text-center">{extendedInfo.error}</p>
+                      ) : (
+                        <div className="space-y-3">
+                          <div>
+                            <span className="text-[10px] font-black text-emerald-500 uppercase flex gap-1 mb-1.5">≈ Từ đồng nghĩa</span>
+                            {extendedInfo.synonyms?.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5">{extendedInfo.synonyms.map((s, i) => <span key={i} className="text-[11px] font-bold bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg border border-emerald-100 shadow-sm">{s}</span>)}</div>
+                            ) : <p className="text-[11px] text-slate-400 italic">Không có dữ liệu</p>}
+                          </div>
+                          <div className="h-px bg-slate-100 w-full"></div>
+                          <div>
+                            <span className="text-[10px] font-black text-rose-500 uppercase flex gap-1 mb-1.5">≠ Từ trái nghĩa</span>
+                            {extendedInfo.antonyms?.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5">{extendedInfo.antonyms.map((a, i) => <span key={i} className="text-[11px] font-bold bg-rose-50 text-rose-700 px-2 py-1 rounded-lg border border-rose-100 shadow-sm">{a}</span>)}</div>
+                            ) : <p className="text-[11px] text-slate-400 italic">Không có dữ liệu</p>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -566,7 +654,7 @@
       if (quizState === 'playing' && questions.length > 0) {
         const q = questions[currentQ];
         return (
-          <div className="h-full flex flex-col"><div className="flex justify-between items-center mb-3 text-sm font-bold text-slate-500"><span>Câu {currentQ + 1}/{questions.length}</span><span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full">Điểm: {score}</span></div><div className="h-1.5 bg-slate-200 rounded-full mb-6 overflow-hidden shrink-0"><div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${((currentQ + 1) / questions.length) * 100}%` }}></div></div><div className="bg-white rounded-3xl p-8 text-center mb-6 shrink-0 shadow-sm border border-slate-100"><p className="text-xs font-bold text-slate-400 mb-2 uppercase">Nghĩa của từ này?</p><h2 className="text-4xl font-black text-slate-800 mb-3">{q.word}</h2><span className="text-sm text-indigo-500 font-mono bg-indigo-50 px-3 py-1 rounded-lg">{q.phonetic}</span></div><div className="flex-1 overflow-y-auto min-h-0"><div className="grid grid-cols-1 gap-3 pb-2">{q.options.map((opt, idx) => { let cls = "bg-white border-2 border-slate-100 text-slate-700"; let icon = null; if (selectedOpt) { if (opt === q.answer) { cls = "bg-green-50 border-green-500 text-green-800"; icon = <CheckCircle2 size={20} className="text-green-600"/>; } else if (opt === selectedOpt) { cls = "bg-red-50 border-red-500 text-red-800"; icon = <XCircle size={20} className="text-red-600"/>; } else cls = "bg-white border-slate-50 text-slate-300 opacity-50"; } return <button key={idx} onClick={() => handleAnswer(opt)} disabled={!!selectedOpt} className={`w-full p-4 rounded-2xl text-left font-bold text-[15px] flex items-center justify-between active:scale-[0.98] ${cls}`}><span>{opt}</span>{icon}</button>; })}</div></div>{selectedOpt && (<div className="mt-4 pb-2 shrink-0"><button onClick={() => { if (currentQ < questions.length - 1) { setCurrentQ(currentQ + 1); setSelectedOpt(null); } else setQuizState('result'); }} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-indigo-600/30 active:scale-95 flex justify-center items-center gap-2">{currentQ < questions.length - 1 ? 'Tiếp theo' : 'Xem kết quả'} <ChevronRight size={20} /></button></div>)}</div>
+          <div className="h-full flex flex-col"><div className="flex justify-between items-center mb-3 text-sm font-bold text-slate-500"><span>Câu {currentQ + 1}/{questions.length}</span><span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full">Điểm: {score}</span></div><div className="h-1.5 bg-slate-200 rounded-full mb-6 overflow-hidden shrink-0"><div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${((currentQ + 1) / questions.length) * 100}%` }}></div></div><div className="bg-white rounded-3xl p-8 text-center mb-6 shrink-0 shadow-sm border border-slate-100"><p className="text-xs font-bold text-slate-400 mb-2 uppercase">Nghĩa của từ này?</p><h2 className="text-4xl font-black text-slate-800 mb-3">{q.word}</h2><span className="text-sm text-indigo-500 font-mono bg-indigo-50 px-3 py-1 rounded-lg">{q.partOfSpeech && <span className="text-indigo-400 italic mr-1 font-serif">({q.partOfSpeech})</span>}{q.phonetic}</span></div><div className="flex-1 overflow-y-auto min-h-0"><div className="grid grid-cols-1 gap-3 pb-2">{q.options.map((opt, idx) => { let cls = "bg-white border-2 border-slate-100 text-slate-700"; let icon = null; if (selectedOpt) { if (opt === q.answer) { cls = "bg-green-50 border-green-500 text-green-800"; icon = <CheckCircle2 size={20} className="text-green-600"/>; } else if (opt === selectedOpt) { cls = "bg-red-50 border-red-500 text-red-800"; icon = <XCircle size={20} className="text-red-600"/>; } else cls = "bg-white border-slate-50 text-slate-300 opacity-50"; } return <button key={idx} onClick={() => handleAnswer(opt)} disabled={!!selectedOpt} className={`w-full p-4 rounded-2xl text-left font-bold text-[15px] flex items-center justify-between active:scale-[0.98] ${cls}`}><span>{opt}</span>{icon}</button>; })}</div></div>{selectedOpt && (<div className="mt-4 pb-2 shrink-0"><button onClick={() => { if (currentQ < questions.length - 1) { setCurrentQ(currentQ + 1); setSelectedOpt(null); } else setQuizState('result'); }} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-indigo-600/30 active:scale-95 flex justify-center items-center gap-2">{currentQ < questions.length - 1 ? 'Tiếp theo' : 'Xem kết quả'} <ChevronRight size={20} /></button></div>)}</div>
         );
       }
 
@@ -577,7 +665,7 @@
 
     // --- Component: Quản lý từ vựng ---
     function ManageMode({ words, onAdd, onDelete }) {
-      const [newWord, setNewWord] = useState({ word: '', context: '', phonetic: '', meaning: '', example: '' });
+      const [newWord, setNewWord] = useState({ word: '', context: '', phonetic: '', meaning: '', example: '', partOfSpeech: '' });
       const [aiState, setAiState] = useState({ isGenerating: false, error: null });
 
       const generateWordInfo = async () => {
@@ -585,10 +673,10 @@
         setAiState({ error: null, isGenerating: true });
         try {
           const contextInstruction = newWord.context.trim() ? `Lưu ý: Hãy giải thích nghĩa và đặt câu ví dụ trong ngữ cảnh / chuyên ngành "${newWord.context.trim()}".` : `Sử dụng nghĩa thông dụng và phổ biến nhất.`;
-          const prompt = `Trình bày IPA, nghĩa Tiếng Việt, và 1 câu ví dụ tiếng Anh siêu ngắn gọn cho từ: "${newWord.word}". ${contextInstruction} Chỉ trả JSON chính xác với các key: phonetic, meaning, example.`;
+          const prompt = `Trình bày IPA, nghĩa Tiếng Việt, và 1 câu ví dụ tiếng Anh siêu ngắn gọn cho từ: "${newWord.word}". ${contextInstruction} QUAN TRỌNG: Nếu "${newWord.word}" là từ đơn hoặc ghép có gạch ngang, trả về từ loại (n, v, adj...). Nếu là cụm từ có dấu cách, trả về "". Chỉ trả JSON: {"phonetic": "...", "meaning": "...", "example": "...", "partOfSpeech": "..."}`;
           const text = await aiHelpers.generateText(prompt, true);
           const info = JSON.parse(text || "{}");
-          if (info.meaning) setNewWord(p => ({ ...p, phonetic: info.phonetic || '', meaning: info.meaning || '', example: info.example || '' }));
+          if (info.meaning) setNewWord(p => ({ ...p, phonetic: info.phonetic || '', meaning: info.meaning || '', example: info.example || '', partOfSpeech: info.partOfSpeech || '' }));
           else throw new Error("Format error");
         } catch (e) { 
           if(e.message === "NO_API_KEY") setAiState({ error: "Vào tab Tài khoản để nhập API Key trước.", isGenerating: false });
@@ -599,8 +687,8 @@
       const handleAdd = (e) => {
         e.preventDefault();
         if (!newWord.word || !newWord.meaning) return setAiState({ error: "Điền đủ Từ vựng và Nghĩa" });
-        onAdd({ word: newWord.word.trim(), context: newWord.context.trim(), phonetic: newWord.phonetic.trim(), meaning: newWord.meaning.trim(), example: newWord.example.trim() });
-        setNewWord({ word: '', context: '', phonetic: '', meaning: '', example: '' }); setAiState({ error: null });
+        onAdd({ word: newWord.word.trim(), context: newWord.context.trim(), phonetic: newWord.phonetic.trim(), meaning: newWord.meaning.trim(), example: newWord.example.trim(), partOfSpeech: newWord.partOfSpeech.trim().toLowerCase() });
+        setNewWord({ word: '', context: '', phonetic: '', meaning: '', example: '', partOfSpeech: '' }); setAiState({ error: null });
       };
 
       return (
@@ -619,8 +707,9 @@
               </div>
               <div className="flex gap-2">
                 <input type="text" required placeholder="Nghĩa Tiếng Việt" value={newWord.meaning} onChange={e => setNewWord({...newWord, meaning: e.target.value})} className="flex-[2] bg-slate-50 px-4 py-3 rounded-2xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500" />
-                <input type="text" placeholder="Phiên âm" value={newWord.phonetic} onChange={e => setNewWord({...newWord, phonetic: e.target.value})} className="flex-1 bg-slate-50 px-4 py-3 rounded-2xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500 min-w-0" />
+                <input type="text" placeholder="Từ loại (n, v)" value={newWord.partOfSpeech} onChange={e => setNewWord({...newWord, partOfSpeech: e.target.value})} className="flex-[0.8] bg-slate-50 px-4 py-3 rounded-2xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500 min-w-0" />
               </div>
+              <input type="text" placeholder="Phiên âm" value={newWord.phonetic} onChange={e => setNewWord({...newWord, phonetic: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-2xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500" />
               <textarea placeholder="Câu ví dụ..." value={newWord.example} onChange={e => setNewWord({...newWord, example: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-2xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-16"></textarea>
               <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-2xl mt-2 active:scale-95 flex items-center justify-center gap-2 transition-transform shadow-lg shadow-indigo-600/30"><Cloud size={18} /> Lưu lên Đám mây</button>
             </form>
@@ -636,8 +725,12 @@
                   {words.map((w) => (
                     <div key={w.id} className="p-4 bg-slate-50 rounded-2xl flex items-center justify-between gap-3">
                       <div className="flex-1 overflow-hidden">
-                        <h3 className="font-bold truncate text-slate-800">{w.word} <span className="text-xs text-indigo-500 font-mono ml-1">{w.phonetic}</span></h3>
-                        <p className="text-sm font-medium text-slate-600 truncate mt-1">{w.meaning}{w.context && <span className="ml-2 text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-md align-middle"><Tag size={10} className="inline mr-1"/>{w.context}</span>}</p>
+                        <h3 className="font-bold truncate text-slate-800">
+                          {w.word}
+                          {w.partOfSpeech && <span className="text-xs text-indigo-400 italic ml-1.5 font-serif">({w.partOfSpeech})</span>}
+                          <span className="text-xs text-indigo-500 font-mono ml-1.5">{w.phonetic}</span>
+                        </h3>
+                        <p className="text-sm font-medium text-slate-600 truncate mt-0.5">{w.meaning}{w.context && <span className="ml-2 text-[10px] font-bold bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-md align-middle">{w.context}</span>}</p>
                       </div>
                       <button onClick={() => { if(window.confirm("Xóa từ này?")) onDelete(w.id) }} className="p-2 text-slate-300 hover:text-red-500 active:bg-red-50 rounded-xl shrink-0 transition-colors"><Trash2 size={20}/></button>
                     </div>
