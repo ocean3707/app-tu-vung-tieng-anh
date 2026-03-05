@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>App Học Từ Vựng AI - V4.1</title>
+  <title>App Học Từ Vựng AI</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -33,7 +33,7 @@
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Volume2, Mic, Plus, List, BookOpen, ChevronRight, ChevronLeft, Trash2, CheckCircle2, XCircle, AlertCircle, Wand2, Loader2, BrainCircuit, Trophy, RotateCcw, Cloud, CloudOff, User, LogOut, ShieldCheck, Tag, GitCompare, Mail, Lock, Key } from 'lucide-react';
+    import { Volume2, Mic, Plus, List, BookOpen, ChevronRight, ChevronLeft, Trash2, CheckCircle2, XCircle, AlertCircle, Wand2, Loader2, BrainCircuit, Trophy, RotateCcw, Cloud, CloudOff, User, LogOut, ShieldCheck, Tag, GitCompare, ListPlus, X, Mail, Lock, Key } from 'lucide-react';
 
     // --- Khởi tạo Firebase ---
     import { initializeApp } from 'firebase/app';
@@ -55,13 +55,32 @@
     const auth = getAuth(app);
     const db = getFirestore(app);
 
-    // --- Dữ liệu mẫu ---
+    // --- Dữ liệu mẫu hỗ trợ Đa nghĩa ---
     const sampleVocabulary = [
-      { word: 'Invest', partOfSpeech: 'v', phonetic: '/ɪnˈvɛst/', meaning: 'Đầu tư, bỏ thời gian/công sức vào việc gì', example: 'I want to invest my money safely.' },
-      { word: 'Asset', partOfSpeech: 'n', phonetic: '/ˈæsɛt/', meaning: 'Tài sản, vốn quý, điểm mạnh', example: 'A house is a good asset.' },
-      { word: 'Pronunciation', partOfSpeech: 'n', phonetic: '/prəˌnʌnsiˈeɪʃən/', meaning: 'Cách phát âm, sự phát âm', example: 'Your pronunciation is very clear.' },
-      { word: 'Stock market', partOfSpeech: '', phonetic: '/ˈstɒk ˌmɑːkɪt/', meaning: 'Thị trường chứng khoán', example: 'The stock market can be risky.' },
-      { word: 'Interest', partOfSpeech: 'n', phonetic: '/ˈɪntrɪst/', meaning: 'Lãi suất, sự quan tâm, sở thích', example: 'This bank has good interest.' }
+      { 
+        word: 'Invest', partOfSpeech: 'v', phonetic: '/ɪnˈvɛst/', context: 'Tài chính',
+        definitions: [{ meaning: 'Đầu tư (tiền bạc, tài sản)', example: 'I want to invest my money safely.' }],
+        meaning: 'Đầu tư (tiền bạc, tài sản)'
+      },
+      { 
+        word: 'Capital', partOfSpeech: 'n', phonetic: '/ˈkæpɪtl/', context: '',
+        definitions: [
+          { meaning: 'Thủ đô', example: 'Hanoi is the capital of Vietnam.' },
+          { meaning: 'Tiền vốn (Tài chính)', example: 'You need capital to start a business.' },
+          { meaning: 'Chữ in hoa', example: 'Please write your name in capital letters.' }
+        ],
+        meaning: 'Thủ đô, Tiền vốn, Chữ hoa'
+      },
+      { 
+        word: 'Return', partOfSpeech: 'v, n', phonetic: '/rɪˈtɜːn/', context: '',
+        definitions: [
+          { meaning: 'Trở lại, quay lại (v)', example: 'She will return home tomorrow.' },
+          { meaning: 'Trả lại (v)', example: 'Please return the book to the library.' },
+          { meaning: 'Tiền lời, lợi nhuận (n - Tài chính)', example: 'Safe investments often have lower returns.' },
+          { meaning: 'Nút Enter/Return (n - IT)', example: 'Press return to submit the form.' }
+        ],
+        meaning: 'Trở lại, Trả lại, Lợi nhuận, Nút Enter'
+      }
     ];
 
     // --- Utilities: Xử lý Âm thanh ---
@@ -313,7 +332,7 @@
                 <div className="p-4 h-full">
                   {activeTab === 'study' && <StudyMode words={words} onAddSample={addSampleData} />}
                   {activeTab === 'quiz' && <QuizMode words={words} />}
-                  {activeTab === 'manage' && <ManageMode words={words} onAdd={handleAddWordToDB} onDelete={handleDeleteFromDB} />}
+                  {activeTab === 'manage' && <ManageMode words={words} onAdd={handleAddWordToDB} onDelete={handleDeleteFromDB} onAddSample={addSampleData}/>}
                   {activeTab === 'profile' && <ProfileMode user={user} wordsCount={words.length} onLogout={handleLogout} />}
                 </div>
               )}
@@ -391,7 +410,6 @@
       const [micState, setMicState] = useState({ isRecording: false, supported: true, feedback: null });
       const [audioState, setAudioState] = useState({ isSpeaking: false, error: null });
       const [aiState, setAiState] = useState({ mnemonic: null, isGenerating: false });
-      
       const [extendedInfo, setExtendedInfo] = useState(null);
       const [isGeneratingExtended, setIsGeneratingExtended] = useState(false);
 
@@ -459,8 +477,7 @@
         if (!currentWord) return;
         setAiState({ mnemonic: null, isGenerating: true });
         try {
-          const contextMsg = currentWord.context ? ` (Ngữ cảnh: ${currentWord.context})` : '';
-          const prompt = `Bạn là chuyên gia. Tạo 1 mẹo ghi nhớ cực ngắn, vui nhộn bằng tiếng Việt cho từ "${currentWord.word}" (Nghĩa: ${currentWord.meaning})${contextMsg}. Chỉ trả lời mẹo.`;
+          const prompt = `Bạn là chuyên gia. Tạo 1 mẹo ghi nhớ cực ngắn, vui nhộn bằng tiếng Việt cho từ "${currentWord.word}" (Nghĩa chung: ${currentWord.meaning}). Chỉ trả lời mẹo.`;
           const text = await aiHelpers.generateText(prompt);
           setAiState({ mnemonic: text.trim(), isGenerating: false });
         } catch (e) { 
@@ -473,7 +490,7 @@
         if (!currentWord) return;
         setIsGeneratingExtended(true); setExtendedInfo(null);
         try {
-          const prompt = `Tìm tối đa 3 từ đồng nghĩa và 3 từ trái nghĩa tiếng Anh phổ biến cho từ "${currentWord.word}" (nghĩa: ${currentWord.meaning}). Cung cấp kèm nghĩa tiếng Việt ngắn gọn trong ngoặc đơn. Trả về ĐÚNG định dạng JSON sau: {"synonyms": ["từ 1 (nghĩa)", "từ 2 (nghĩa)"], "antonyms": ["từ 1 (nghĩa)", "từ 2 (nghĩa)"]}`;
+          const prompt = `Tìm tối đa 3 từ đồng nghĩa và 3 từ trái nghĩa tiếng Anh phổ biến cho từ "${currentWord.word}" (nghĩa: ${currentWord.meaning}). Cung cấp kèm nghĩa tiếng Việt ngắn gọn trong ngoặc đơn. Trả về JSON format: {"synonyms": ["word (nghĩa)"], "antonyms": ["word (nghĩa)"]}`;
           const text = await aiHelpers.generateText(prompt, true);
           const data = JSON.parse(text || "{}");
           setExtendedInfo({ synonyms: data.synonyms || [], antonyms: data.antonyms || [] });
@@ -503,6 +520,10 @@
         </div>
       );
 
+      const defsToRender = currentWord.definitions && currentWord.definitions.length > 0 
+        ? currentWord.definitions 
+        : [{ meaning: currentWord.meaning, example: currentWord.example }];
+
       return (
         <div className="h-full flex flex-col space-y-4">
           <div className="flex justify-between items-center px-1 shrink-0">
@@ -525,29 +546,39 @@
                     {audioState.isSpeaking ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
                   </button>
                 </div>
+                {currentWord.context && <span className="mt-3 text-[10px] font-bold bg-indigo-100 text-indigo-600 px-3 py-1 rounded-full uppercase tracking-wider">Ngữ cảnh: {currentWord.context}</span>}
               </div>
 
-              <div className="flex-1 w-full bg-slate-50/50 rounded-2xl p-4 text-left border border-slate-100/50 overflow-y-auto mb-4">
-                <div className="mb-3">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Nghĩa</span>
-                  <p className="text-lg font-medium text-slate-700">{currentWord.meaning} {currentWord.context && <span className="ml-2 text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-md align-middle"><Tag size={10} className="inline mr-1"/>{currentWord.context}</span>}</p>
+              <div className="flex-1 w-full overflow-y-auto mb-4 pr-1">
+                
+                {/* Khu vực liệt kê các nghĩa */}
+                <div className="bg-slate-50/50 rounded-2xl p-4 text-left border border-slate-100/50 mb-4">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">Nghĩa phổ biến</span>
+                  <ul className="space-y-3.5">
+                    {defsToRender.map((def, idx) => (
+                      <li key={idx} className="relative pl-5">
+                        {defsToRender.length > 1 && <span className="absolute left-0 top-0.5 text-[11px] font-black text-indigo-400">{idx + 1}.</span>}
+                        <p className="text-[15px] font-bold text-slate-700 leading-snug">{def.meaning}</p>
+                        {def.example && <p className="text-[13px] text-slate-500 italic mt-1 leading-snug">"{def.example}"</p>}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <div><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Ví dụ</span><p className="text-sm text-slate-600 italic">"{currentWord.example}"</p></div>
 
                 {/* Các Nút Chức năng AI */}
-                <div className="mt-4 flex flex-col gap-2">
+                <div className="flex flex-col gap-2">
                   {!aiState.mnemonic && !aiState.isGenerating && (
-                    <button onClick={generateMnemonic} className="w-full py-2.5 bg-gradient-to-r from-amber-100 to-orange-100 hover:from-amber-200 text-amber-700 font-bold rounded-xl text-[11px] uppercase tracking-wider flex justify-center items-center gap-1.5 active:scale-95 shadow-sm transition-all">✨ Tạo mẹo ghi nhớ</button>
+                    <button onClick={generateMnemonic} className="w-full py-3 bg-gradient-to-r from-amber-100 to-orange-100 hover:from-amber-200 text-amber-700 font-bold rounded-xl text-[11px] uppercase tracking-wider flex justify-center items-center gap-1.5 active:scale-95 shadow-sm transition-all">✨ Tạo mẹo ghi nhớ</button>
                   )}
-                  {aiState.isGenerating && <div className="w-full py-2.5 bg-amber-50 text-amber-600 font-bold rounded-xl text-[11px] uppercase flex justify-center gap-2"><Loader2 size={16} className="animate-spin" /> AI đang suy nghĩ...</div>}
+                  {aiState.isGenerating && <div className="w-full py-3 bg-amber-50 text-amber-600 font-bold rounded-xl text-[11px] uppercase flex justify-center gap-2"><Loader2 size={16} className="animate-spin" /> AI đang suy nghĩ...</div>}
                   {aiState.mnemonic && (
                     <div className="bg-amber-50 rounded-xl p-4 border border-amber-200 animate-in fade-in"><span className="text-[10px] font-black text-amber-500 uppercase flex gap-1 mb-1">✨ Mẹo AI</span><p className="text-[13px] text-amber-900 font-medium" dangerouslySetInnerHTML={{ __html: aiState.mnemonic.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p></div>
                   )}
 
                   {!extendedInfo && !isGeneratingExtended && (
-                    <button onClick={fetchExtendedInfo} className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-[11px] uppercase tracking-wider flex justify-center items-center gap-1.5 active:scale-95 shadow-sm transition-all"><GitCompare size={14} /> Khám phá Đồng / Trái nghĩa</button>
+                    <button onClick={fetchExtendedInfo} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-[11px] uppercase tracking-wider flex justify-center items-center gap-1.5 active:scale-95 shadow-sm transition-all"><GitCompare size={14} /> Khám phá Đồng / Trái nghĩa</button>
                   )}
-                  {isGeneratingExtended && <div className="w-full py-2.5 bg-slate-100 text-slate-500 font-bold rounded-xl text-[11px] uppercase flex justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Đang tra cứu...</div>}
+                  {isGeneratingExtended && <div className="w-full py-3 bg-slate-100 text-slate-500 font-bold rounded-xl text-[11px] uppercase flex justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Đang tra cứu...</div>}
                   {extendedInfo && (
                     <div className="bg-white rounded-xl p-4 border border-slate-200 animate-in fade-in shadow-sm mt-1">
                       {extendedInfo.error ? (
@@ -555,17 +586,17 @@
                       ) : (
                         <div className="space-y-3">
                           <div>
-                            <span className="text-[10px] font-black text-emerald-500 uppercase flex gap-1 mb-1.5">≈ Từ đồng nghĩa</span>
+                            <span className="text-[10px] font-black text-emerald-500 uppercase flex gap-1 mb-1.5">≈ Đồng nghĩa</span>
                             {extendedInfo.synonyms?.length > 0 ? (
                               <div className="flex flex-wrap gap-1.5">{extendedInfo.synonyms.map((s, i) => <span key={i} className="text-[11px] font-bold bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg border border-emerald-100 shadow-sm">{s}</span>)}</div>
-                            ) : <p className="text-[11px] text-slate-400 italic">Không có dữ liệu</p>}
+                            ) : <p className="text-[11px] text-slate-400 italic">Không tìm thấy</p>}
                           </div>
                           <div className="h-px bg-slate-100 w-full"></div>
                           <div>
-                            <span className="text-[10px] font-black text-rose-500 uppercase flex gap-1 mb-1.5">≠ Từ trái nghĩa</span>
+                            <span className="text-[10px] font-black text-rose-500 uppercase flex gap-1 mb-1.5">≠ Trái nghĩa</span>
                             {extendedInfo.antonyms?.length > 0 ? (
                               <div className="flex flex-wrap gap-1.5">{extendedInfo.antonyms.map((a, i) => <span key={i} className="text-[11px] font-bold bg-rose-50 text-rose-700 px-2 py-1 rounded-lg border border-rose-100 shadow-sm">{a}</span>)}</div>
-                            ) : <p className="text-[11px] text-slate-400 italic">Không có dữ liệu</p>}
+                            ) : <p className="text-[11px] text-slate-400 italic">Không tìm thấy</p>}
                           </div>
                         </div>
                       )}
@@ -591,7 +622,7 @@
       );
     }
 
-    // --- Component: Quiz & Story ---
+    // --- Component: Quiz & Story (Đã cập nhật để dùng Đa nghĩa) ---
     function QuizMode({ words }) {
       const [quizState, setQuizState] = useState('start');
       const [questions, setQuestions] = useState([]);
@@ -604,8 +635,10 @@
         if (words.length < 4) return alert("Cần tối thiểu 4 từ vựng!");
         const shuffled = [...words].sort(() => 0.5 - Math.random()).slice(0, Math.min(num, words.length));
         setQuestions(shuffled.map(target => {
-          const wrongs = words.filter(w => w.id !== target.id).sort(() => 0.5 - Math.random()).slice(0, 3).map(w => w.meaning);
-          return { ...target, options: [...wrongs, target.meaning].sort(() => 0.5 - Math.random()), answer: target.meaning };
+          // Rút gọn nghĩa chính để làm đáp án trắc nghiệm cho đỡ dài
+          const mainMeaning = target.meaning.split(',')[0].trim();
+          const wrongs = words.filter(w => w.id !== target.id).sort(() => 0.5 - Math.random()).slice(0, 3).map(w => w.meaning.split(',')[0].trim());
+          return { ...target, options: [...wrongs, mainMeaning].sort(() => 0.5 - Math.random()), answer: mainMeaning };
         }));
         setScore(0); setCurrentQ(0); setSelectedOpt(null); setQuizState('playing');
       };
@@ -664,34 +697,51 @@
     }
 
     // --- Component: Quản lý từ vựng ---
-    function ManageMode({ words, onAdd, onDelete }) {
-      const [newWord, setNewWord] = useState({ word: '', context: '', phonetic: '', meaning: '', example: '', partOfSpeech: '' });
+    function ManageMode({ words, onAdd, onDelete, onAddSample }) {
+      const [newWord, setNewWord] = useState({ word: '', context: '', phonetic: '', partOfSpeech: '', definitions: [{ meaning: '', example: '' }] });
       const [aiState, setAiState] = useState({ isGenerating: false, error: null });
 
       const generateWordInfo = async () => {
         if (!newWord.word.trim()) return setAiState({ error: "Vui lòng nhập từ tiếng Anh trước.", isGenerating: false });
         setAiState({ error: null, isGenerating: true });
         try {
-          const contextInstruction = newWord.context.trim() ? `Lưu ý: Hãy giải thích nghĩa và đặt câu ví dụ trong ngữ cảnh / chuyên ngành "${newWord.context.trim()}".` : `Sử dụng nghĩa thông dụng và phổ biến nhất.`;
-          
-          // Đã cập nhật Prompt mở rộng nghĩa
-          const prompt = `Trình bày IPA, nghĩa Tiếng Việt ĐẦY ĐỦ (liệt kê cả nghĩa chính và các nghĩa phụ phổ biến nhất, cách nhau bằng dấu phẩy), và 1 câu ví dụ tiếng Anh ngắn gọn cho từ: "${newWord.word}". ${contextInstruction} QUAN TRỌNG: Nếu "${newWord.word}" là từ đơn hoặc ghép có gạch ngang, trả về từ loại (n, v, adj...). Nếu là cụm từ, trả về "". Chỉ trả JSON: {"phonetic": "...", "meaning": "...", "example": "...", "partOfSpeech": "..."}`;
+          const contextInstruction = newWord.context.trim() ? `Ngữ cảnh cần ưu tiên: "${newWord.context.trim()}". Đưa nghĩa trong ngữ cảnh này lên đầu tiên.` : `Sử dụng các nghĩa thông dụng nhất.`;
+          const prompt = `Trình bày IPA, từ loại và liệt kê TẤT CẢ CÁC NGHĨA PHỔ BIẾN VÀ THÔNG DỤNG NHẤT cho từ: "${newWord.word}". ${contextInstruction} Với mỗi nghĩa, kèm 1 câu ví dụ tiếng Anh ngắn gọn. QUAN TRỌNG: Từ loại viết tắt (n, v, adj..), nếu là cụm từ thì để rỗng "". Trả JSON: {"phonetic": "...", "partOfSpeech": "...", "definitions": [{"meaning": "...", "example": "..."}]}`;
           
           const text = await aiHelpers.generateText(prompt, true);
           const info = JSON.parse(text || "{}");
-          if (info.meaning) setNewWord(p => ({ ...p, phonetic: info.phonetic || '', meaning: info.meaning || '', example: info.example || '', partOfSpeech: info.partOfSpeech || '' }));
-          else throw new Error("Format error");
+          
+          if (info.definitions && info.definitions.length > 0) {
+            setNewWord(p => ({ ...p, phonetic: info.phonetic || '', partOfSpeech: info.partOfSpeech || '', definitions: info.definitions }));
+          } else { throw new Error("Format error"); }
         } catch (e) { 
           if(e.message === "NO_API_KEY") setAiState({ error: "Vào tab Tài khoản để nhập API Key trước.", isGenerating: false });
-          else setAiState({ error: "Lỗi AI. Nhập thủ công đi bro.", isGenerating: false }); 
+          else setAiState({ error: "Lỗi AI. Vui lòng nhập thủ công.", isGenerating: false }); 
         } finally { setAiState(p => ({ ...p, isGenerating: false })); }
       };
 
+      const handleAddDef = () => setNewWord(p => ({ ...p, definitions: [...p.definitions, { meaning: '', example: '' }] }));
+      const handleDefChange = (idx, field, val) => {
+        const newDefs = [...newWord.definitions];
+        newDefs[idx][field] = val;
+        setNewWord(p => ({ ...p, definitions: newDefs }));
+      };
+      const handleRemoveDef = (idx) => setNewWord(p => ({ ...p, definitions: newWord.definitions.filter((_, i) => i !== idx) }));
+
       const handleAdd = (e) => {
         e.preventDefault();
-        if (!newWord.word || !newWord.meaning) return setAiState({ error: "Điền đủ Từ vựng và Nghĩa" });
-        onAdd({ word: newWord.word.trim(), context: newWord.context.trim(), phonetic: newWord.phonetic.trim(), meaning: newWord.meaning.trim(), example: newWord.example.trim(), partOfSpeech: newWord.partOfSpeech.trim().toLowerCase() });
-        setNewWord({ word: '', context: '', phonetic: '', meaning: '', example: '', partOfSpeech: '' }); setAiState({ error: null });
+        const validDefs = newWord.definitions.filter(d => d.meaning.trim() !== '');
+        if (!newWord.word || validDefs.length === 0) return setAiState({ error: "Điền đủ Từ vựng và ít nhất 1 Nghĩa" });
+        
+        const combinedMeaning = validDefs.map(d => d.meaning.trim()).join('; ');
+
+        onAdd({ 
+          word: newWord.word.trim(), context: newWord.context.trim(), phonetic: newWord.phonetic.trim(), partOfSpeech: newWord.partOfSpeech.trim().toLowerCase(),
+          definitions: validDefs, meaning: combinedMeaning, example: validDefs[0].example
+        });
+        
+        setNewWord({ word: '', context: '', phonetic: '', partOfSpeech: '', definitions: [{ meaning: '', example: '' }] }); 
+        setAiState({ error: null });
       };
 
       return (
@@ -699,21 +749,36 @@
           <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 shrink-0">
             <h2 className="text-lg font-black mb-4 flex items-center gap-2 text-indigo-700"><Plus size={20} /> Thêm từ mới</h2>
             {aiState.error && <div className="mb-3 p-2 bg-red-50 text-red-600 rounded-xl text-xs font-bold flex gap-2"><AlertCircle size={16}/>{aiState.error}</div>}
-            <form onSubmit={handleAdd} className="space-y-3">
+            
+            <form onSubmit={handleAdd} className="space-y-3 max-h-[45vh] overflow-y-auto px-1 pb-1">
               <div className="flex gap-2">
                 <input type="text" required placeholder="Từ tiếng Anh..." value={newWord.word} onChange={e => setNewWord({...newWord, word: e.target.value})} className="flex-1 bg-slate-50 px-4 py-3 rounded-2xl text-sm font-bold border-none outline-none focus:ring-2 focus:ring-indigo-500" />
                 <button type="button" onClick={generateWordInfo} disabled={aiState.isGenerating || !newWord.word} className="bg-indigo-100 text-indigo-700 px-4 rounded-2xl font-bold active:scale-95 transition-transform flex items-center justify-center min-w-[50px]">{aiState.isGenerating ? <Loader2 className="animate-spin" size={20} /> : <Wand2 size={20} />}</button>
               </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none"><Tag size={16} className="text-slate-400" /></div>
-                <input type="text" placeholder="Ngữ cảnh / Chuyên ngành (Tùy chọn)" value={newWord.context} onChange={e => setNewWord({...newWord, context: e.target.value})} className="w-full bg-slate-50 pl-11 pr-4 py-3 rounded-2xl text-[13px] font-medium outline-none focus:ring-2 focus:ring-indigo-500 placeholder-slate-400" />
-              </div>
+
               <div className="flex gap-2">
-                <input type="text" required placeholder="Nghĩa Tiếng Việt" value={newWord.meaning} onChange={e => setNewWord({...newWord, meaning: e.target.value})} className="flex-[2] bg-slate-50 px-4 py-3 rounded-2xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500" />
-                <input type="text" placeholder="Từ loại (n, v)" value={newWord.partOfSpeech} onChange={e => setNewWord({...newWord, partOfSpeech: e.target.value})} className="flex-[0.8] bg-slate-50 px-4 py-3 rounded-2xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500 min-w-0" />
+                <div className="relative flex-1">
+                  <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none"><Tag size={14} className="text-slate-400" /></div>
+                  <input type="text" placeholder="Ngữ cảnh (IT, Kinh tế...)" value={newWord.context} onChange={e => setNewWord({...newWord, context: e.target.value})} className="w-full bg-slate-50 pl-9 pr-3 py-2.5 rounded-xl text-[13px] font-medium outline-none focus:ring-2 focus:ring-indigo-500 placeholder-slate-400" />
+                </div>
+                <input type="text" placeholder="Loại (n,v)" value={newWord.partOfSpeech} onChange={e => setNewWord({...newWord, partOfSpeech: e.target.value})} className="w-20 bg-slate-50 px-2 py-2.5 rounded-xl text-[13px] font-medium outline-none focus:ring-2 focus:ring-indigo-500 text-center" />
+                <input type="text" placeholder="Phiên âm" value={newWord.phonetic} onChange={e => setNewWord({...newWord, phonetic: e.target.value})} className="w-24 bg-slate-50 px-2 py-2.5 rounded-xl text-[13px] font-medium outline-none focus:ring-2 focus:ring-indigo-500 text-center" />
               </div>
-              <input type="text" placeholder="Phiên âm" value={newWord.phonetic} onChange={e => setNewWord({...newWord, phonetic: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-2xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500" />
-              <textarea placeholder="Câu ví dụ..." value={newWord.example} onChange={e => setNewWord({...newWord, example: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-2xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-16"></textarea>
+
+              <div className="space-y-2 mt-2 bg-slate-50/50 p-2 rounded-2xl border border-slate-100">
+                {newWord.definitions.map((def, idx) => (
+                  <div key={idx} className="relative bg-white p-2.5 rounded-xl border border-slate-100 shadow-sm flex flex-col gap-1.5">
+                    {newWord.definitions.length > 1 && <button type="button" onClick={() => handleRemoveDef(idx)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 bg-slate-50 rounded-full p-1 z-10"><X size={14}/></button>}
+                    <div className="flex items-center gap-2 pr-6">
+                      <span className="text-[10px] font-black text-indigo-500 bg-indigo-50 w-5 h-5 flex items-center justify-center rounded-full shrink-0">{idx + 1}</span>
+                      <input type="text" placeholder="Nghĩa Tiếng Việt..." required value={def.meaning} onChange={e => handleDefChange(idx, 'meaning', e.target.value)} className="w-full bg-transparent text-[13px] font-bold outline-none placeholder-slate-400" />
+                    </div>
+                    <input type="text" placeholder="Ví dụ minh họa (Tùy chọn)..." value={def.example} onChange={e => handleDefChange(idx, 'example', e.target.value)} className="w-full bg-slate-50 px-3 py-2 rounded-lg text-[12px] font-medium outline-none focus:ring-1 focus:ring-indigo-300" />
+                  </div>
+                ))}
+                <button type="button" onClick={handleAddDef} className="w-full py-2 flex items-center justify-center gap-1 text-[11px] font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors"><ListPlus size={14} /> Thêm lớp nghĩa khác</button>
+              </div>
+              
               <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-2xl mt-2 active:scale-95 flex items-center justify-center gap-2 transition-transform shadow-lg shadow-indigo-600/30"><Cloud size={18} /> Lưu lên Đám mây</button>
             </form>
           </div>
@@ -722,19 +787,20 @@
             <div className="flex justify-between mb-4 shrink-0"><h2 className="text-lg font-black flex items-center text-slate-800">Từ của bạn <span className="ml-2 text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full">{words.length}</span></h2></div>
             <div className="flex-1 overflow-y-auto min-h-0 pb-4">
               {words.length === 0 ? (
-                 <div className="text-center py-6"><p className="text-slate-400 text-sm font-medium">Danh sách trống.</p></div>
+                 <div className="text-center py-6"><p className="text-slate-400 text-sm mb-4 font-medium">Danh sách trống.</p><button onClick={onAddSample} className="text-indigo-600 bg-indigo-50 px-4 py-2 rounded-xl text-sm font-bold flex justify-center gap-2 mx-auto"><Wand2 size={16}/> Tải mẫu đa nghĩa</button></div>
               ) : (
                 <div className="space-y-3">
                   {words.map((w) => (
                     <div key={w.id} className="p-4 bg-slate-50 rounded-2xl flex items-center justify-between gap-3">
                       <div className="flex-1 overflow-hidden">
                         <h3 className="font-bold truncate text-slate-800">
-                          {w.word}
+                          {w.word} 
                           {w.partOfSpeech && <span className="text-xs text-indigo-400 italic ml-1.5 font-serif">({w.partOfSpeech})</span>}
                           <span className="text-xs text-indigo-500 font-mono ml-1.5">{w.phonetic}</span>
                         </h3>
-                        {/* Đã chỉnh line-clamp-2 để đọc được nghĩa dài */}
-                        <p className="text-sm font-medium text-slate-600 line-clamp-2 mt-0.5">{w.meaning} {w.context && <span className="ml-1 text-[10px] font-bold bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-md align-middle">{w.context}</span>}</p>
+                        <p className="text-sm font-medium text-slate-600 truncate mt-0.5">
+                          {w.meaning}
+                        </p>
                       </div>
                       <button onClick={() => { if(window.confirm("Xóa từ này?")) onDelete(w.id) }} className="p-2 text-slate-300 hover:text-red-500 active:bg-red-50 rounded-xl shrink-0 transition-colors"><Trash2 size={20}/></button>
                     </div>
